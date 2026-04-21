@@ -1,0 +1,21 @@
+{
+  "name": "@rello-platform/nurture-goals",
+  "version": "0.1.0",
+  "description": "Canonical NurtureGoal registry + priming/topic-exclusion metadata for the Rello platform — consumed by Rello (campaigns) and Milo Engine (goal-driven composition).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "github:rello-platform/nurture-goals"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
