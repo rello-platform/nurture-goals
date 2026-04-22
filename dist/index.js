@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Canonical NurtureGoal registry for the Rello platform.
  *
@@ -30,6 +31,14 @@
  *   topic opt-out appear in the map. RELATIONSHIP and BRAND_AWARENESS are
  *   intentionally omitted — they don't map to a consumer opt-out category.
  */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = exports.PRIMING_CATEGORIES_BY_GOAL = exports.UNIVERSAL_PRIMING_CATEGORIES = exports.PRIMING_CATEGORY_KEYS = exports.MAX_PRIMING_TEXT_LENGTH = exports.NURTURE_GOAL_METADATA = exports.NURTURE_GOALS = void 0;
+exports.isNurtureGoal = isNurtureGoal;
+exports.isPrimingCategoryKey = isPrimingCategoryKey;
+exports.getPrimingCategoriesForGoal = getPrimingCategoriesForGoal;
+exports.getRequiredPrimingCategoryKeys = getRequiredPrimingCategoryKeys;
+exports.isValidPrimingCategoryForGoal = isValidPrimingCategoryForGoal;
+exports.getTopicExclusionKey = getTopicExclusionKey;
 // =============================================================================
 // NurtureGoal — the "why" behind every campaign
 // =============================================================================
@@ -39,7 +48,7 @@
  * off these values). Add a new goal here ONLY when Milo has a goal-specific
  * rule path and framework mapping to receive it.
  */
-export const NURTURE_GOALS = [
+exports.NURTURE_GOALS = [
     "HOME_PURCHASE",
     "REFINANCE",
     "REVERSE_MORTGAGE",
@@ -51,9 +60,9 @@ export const NURTURE_GOALS = [
     "LISTING_CONVERSION",
     "BRAND_AWARENESS",
 ];
-const NURTURE_GOAL_SET = new Set(NURTURE_GOALS);
+const NURTURE_GOAL_SET = new Set(exports.NURTURE_GOALS);
 /** Type guard: is this value a canonical NurtureGoal? */
-export function isNurtureGoal(value) {
+function isNurtureGoal(value) {
     return typeof value === "string" && NURTURE_GOAL_SET.has(value);
 }
 /**
@@ -67,7 +76,7 @@ export function isNurtureGoal(value) {
  * goals (purchase, refinance, equity products) first, relationship goals
  * in the middle, education goals last.
  */
-export const NURTURE_GOAL_METADATA = {
+exports.NURTURE_GOAL_METADATA = {
     HOME_PURCHASE: {
         key: "HOME_PURCHASE",
         displayName: "Purchase / Buyer Opportunity",
@@ -136,13 +145,13 @@ export const NURTURE_GOAL_METADATA = {
  * Maximum characters per priming-facts entry. Keeps Milo's prompt context
  * lean and forces pithy agent input. Enforced at UI and write-time.
  */
-export const MAX_PRIMING_TEXT_LENGTH = 280;
+exports.MAX_PRIMING_TEXT_LENGTH = 280;
 /**
  * Every category key in the platform. Goal-specific categories only apply
  * to the goals listed in PRIMING_CATEGORIES_BY_GOAL; the universal six
  * apply to every goal.
  */
-export const PRIMING_CATEGORY_KEYS = [
+exports.PRIMING_CATEGORY_KEYS = [
     // Universal (apply to every goal)
     "thesis",
     "audience_note",
@@ -182,16 +191,16 @@ export const PRIMING_CATEGORY_KEYS = [
     "educational_topic",
     "proof_point",
 ];
-const PRIMING_CATEGORY_KEY_SET = new Set(PRIMING_CATEGORY_KEYS);
+const PRIMING_CATEGORY_KEY_SET = new Set(exports.PRIMING_CATEGORY_KEYS);
 /** Type guard: is this string a canonical priming category key? */
-export function isPrimingCategoryKey(value) {
+function isPrimingCategoryKey(value) {
     return typeof value === "string" && PRIMING_CATEGORY_KEY_SET.has(value);
 }
 /**
  * The six categories that apply to every nurture goal. Seven stay at the
  * top of the priming step in the UI regardless of goal selection.
  */
-export const UNIVERSAL_PRIMING_CATEGORIES = [
+exports.UNIVERSAL_PRIMING_CATEGORIES = [
     {
         key: "thesis",
         label: "Why this campaign, why now",
@@ -234,9 +243,9 @@ export const UNIVERSAL_PRIMING_CATEGORIES = [
  * when that goal is selected. The required entry for each goal anchors
  * the narrative direction (Milo depends on it); optional entries refine.
  */
-export const PRIMING_CATEGORIES_BY_GOAL = {
+exports.PRIMING_CATEGORIES_BY_GOAL = {
     HOME_PURCHASE: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "buyer_segment",
             label: "Buyer segment",
@@ -251,7 +260,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     REFINANCE: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "rate_argument",
             label: "Rate argument",
@@ -272,7 +281,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     REVERSE_MORTGAGE: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "security_thesis",
             label: "Security thesis",
@@ -287,7 +296,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     EQUITY_ACCESS: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "use_case",
             label: "Use case",
@@ -302,7 +311,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     REACTIVATION: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "prior_relationship",
             label: "Prior relationship",
@@ -317,7 +326,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     RELATIONSHIP: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "personal_anchor",
             label: "Personal anchor",
@@ -332,7 +341,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     REFERRAL: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "referral_ask_style",
             label: "Referral ask style",
@@ -347,7 +356,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     HOME_SALE: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "value_position",
             label: "Value position",
@@ -362,7 +371,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     LISTING_CONVERSION: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "agent_fit",
             label: "Agent fit",
@@ -377,7 +386,7 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
         },
     ],
     BRAND_AWARENESS: [
-        ...UNIVERSAL_PRIMING_CATEGORIES,
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
             key: "educational_topic",
             label: "Educational topic",
@@ -398,16 +407,16 @@ export const PRIMING_CATEGORIES_BY_GOAL = {
  * should use this rather than indexing PRIMING_CATEGORIES_BY_GOAL directly
  * — this function narrows the goal type and errors on unknown input.
  */
-export function getPrimingCategoriesForGoal(goal) {
-    return PRIMING_CATEGORIES_BY_GOAL[goal];
+function getPrimingCategoriesForGoal(goal) {
+    return exports.PRIMING_CATEGORIES_BY_GOAL[goal];
 }
 /**
  * Category keys that MUST have at least one entry before a campaign can
  * launch. The UI gates the Launch button on this; the launch endpoint
  * revalidates server-side (trust-but-verify).
  */
-export function getRequiredPrimingCategoryKeys(goal) {
-    return PRIMING_CATEGORIES_BY_GOAL[goal]
+function getRequiredPrimingCategoryKeys(goal) {
+    return exports.PRIMING_CATEGORIES_BY_GOAL[goal]
         .filter((c) => c.required)
         .map((c) => c.key);
 }
@@ -416,10 +425,10 @@ export function getRequiredPrimingCategoryKeys(goal) {
  * not be valid for goal B (e.g., `buyer_segment` is HOME_PURCHASE-only).
  * Used by Campaign.primingFacts write-time validation.
  */
-export function isValidPrimingCategoryForGoal(goal, categoryKey) {
+function isValidPrimingCategoryForGoal(goal, categoryKey) {
     if (!isPrimingCategoryKey(categoryKey))
         return false;
-    return PRIMING_CATEGORIES_BY_GOAL[goal].some((c) => c.key === categoryKey);
+    return exports.PRIMING_CATEGORIES_BY_GOAL[goal].some((c) => c.key === categoryKey);
 }
 // =============================================================================
 // Topic exclusions (B-10)
@@ -437,7 +446,7 @@ export function isValidPrimingCategoryForGoal(goal, categoryKey) {
  * Values are lowercase-underscore topic keys to match the platform's
  * existing `leadTopicExclusions` convention.
  */
-export const TOPIC_EXCLUSION_KEYS_BY_GOAL = {
+exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = {
     HOME_PURCHASE: "purchase",
     REFINANCE: "refinance",
     REVERSE_MORTGAGE: "reverse_mortgage",
@@ -452,6 +461,6 @@ export const TOPIC_EXCLUSION_KEYS_BY_GOAL = {
  * no meaningful topic opt-out. Callers should branch on null (skip the
  * filter / skip the guardrail check).
  */
-export function getTopicExclusionKey(goal) {
-    return TOPIC_EXCLUSION_KEYS_BY_GOAL[goal] ?? null;
+function getTopicExclusionKey(goal) {
+    return exports.TOPIC_EXCLUSION_KEYS_BY_GOAL[goal] ?? null;
 }
