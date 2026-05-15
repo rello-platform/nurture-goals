@@ -23,6 +23,13 @@
  *   2026-04-21 against Milo-Engine/src/lib/nurture-goals.ts:14-24).
  *   Changing the list here WITHOUT coordinating with Milo would create
  *   compile-time drift on the composition side.
+ * - 2026-05-15 — REALTOR_CULTIVATION added (REALTOR-PROSPECT-PIPELINE D21
+ *   lock). B2B referral-partnership cultivation goal; vector-inverse of
+ *   borrower-side REFERRAL. Milo-Engine receives the value via the
+ *   discriminated-union MiloContext extension (D20 lock — REALTOR_PROSPECT
+ *   arm short-circuits resolveNurtureGoalRaw to this value). Ships with
+ *   universal-only priming categories at launch; D22 deferred:
+ *   goal-specific categories + framework slugs plug in when Q13 lands.
  * - Priming pattern (AboutMe per B-03): per-entry { text, category };
  *   category must be a valid PrimingCategoryKey for the selected goal.
  *   6 universal categories + 1-3 goal-specific categories.
@@ -36,7 +43,7 @@
  * off these values). Add a new goal here ONLY when Milo has a goal-specific
  * rule path and framework mapping to receive it.
  */
-export declare const NURTURE_GOALS: readonly ["HOME_PURCHASE", "REFINANCE", "REVERSE_MORTGAGE", "EQUITY_ACCESS", "REACTIVATION", "RELATIONSHIP", "REFERRAL", "HOME_SALE", "LISTING_CONVERSION", "BRAND_AWARENESS"];
+export declare const NURTURE_GOALS: readonly ["HOME_PURCHASE", "REFINANCE", "REVERSE_MORTGAGE", "EQUITY_ACCESS", "REACTIVATION", "RELATIONSHIP", "REFERRAL", "REALTOR_CULTIVATION", "HOME_SALE", "LISTING_CONVERSION", "BRAND_AWARENESS"];
 export type NurtureGoal = (typeof NURTURE_GOALS)[number];
 /** Type guard: is this value a canonical NurtureGoal? */
 export declare function isNurtureGoal(value: unknown): value is NurtureGoal;

@@ -24,6 +24,13 @@
  *   2026-04-21 against Milo-Engine/src/lib/nurture-goals.ts:14-24).
  *   Changing the list here WITHOUT coordinating with Milo would create
  *   compile-time drift on the composition side.
+ * - 2026-05-15 — REALTOR_CULTIVATION added (REALTOR-PROSPECT-PIPELINE D21
+ *   lock). B2B referral-partnership cultivation goal; vector-inverse of
+ *   borrower-side REFERRAL. Milo-Engine receives the value via the
+ *   discriminated-union MiloContext extension (D20 lock — REALTOR_PROSPECT
+ *   arm short-circuits resolveNurtureGoalRaw to this value). Ships with
+ *   universal-only priming categories at launch; D22 deferred:
+ *   goal-specific categories + framework slugs plug in when Q13 lands.
  * - Priming pattern (AboutMe per B-03): per-entry { text, category };
  *   category must be a valid PrimingCategoryKey for the selected goal.
  *   6 universal categories + 1-3 goal-specific categories.
@@ -56,6 +63,7 @@ exports.NURTURE_GOALS = [
     "REACTIVATION",
     "RELATIONSHIP",
     "REFERRAL",
+    "REALTOR_CULTIVATION",
     "HOME_SALE",
     "LISTING_CONVERSION",
     "BRAND_AWARENESS",
@@ -118,6 +126,12 @@ exports.NURTURE_GOAL_METADATA = {
         displayName: "Referral Cultivation",
         description: "Post-close clients with high engagement — cultivate referrals over time.",
         sortOrder: 70,
+    },
+    REALTOR_CULTIVATION: {
+        key: "REALTOR_CULTIVATION",
+        displayName: "Realtor Cultivation (B2B Referral Partnership)",
+        description: "MLO cultivating a realtor as a referral partner — B2B courtship arc. Vector-inverse of borrower-side REFERRAL (clients sending friends to MLO); here the MLO courts the realtor to send buyers.",
+        sortOrder: 75,
     },
     HOME_SALE: {
         key: "HOME_SALE",
@@ -355,6 +369,11 @@ exports.PRIMING_CATEGORIES_BY_GOAL = {
             required: false,
         },
     ],
+    // REALTOR_CULTIVATION ships at launch with universal-only categories.
+    // D22 deferred: realtor-side MILO_FRAMEWORKS entries land in a later
+    // workstream (Q13); goal-specific priming categories (e.g.,
+    // partner_thesis, deal_volume_target) plug in alongside those frameworks.
+    REALTOR_CULTIVATION: [...exports.UNIVERSAL_PRIMING_CATEGORIES],
     HOME_SALE: [
         ...exports.UNIVERSAL_PRIMING_CATEGORIES,
         {
