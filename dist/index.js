@@ -39,7 +39,7 @@
  *   intentionally omitted — they don't map to a consumer opt-out category.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = exports.PRIMING_CATEGORIES_BY_GOAL = exports.UNIVERSAL_PRIMING_CATEGORIES = exports.PRIMING_CATEGORY_KEYS = exports.MAX_PRIMING_TEXT_LENGTH = exports.NURTURE_GOAL_METADATA = exports.NURTURE_GOALS = void 0;
+exports.inferNurtureGoal = exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = exports.PRIMING_CATEGORIES_BY_GOAL = exports.UNIVERSAL_PRIMING_CATEGORIES = exports.PRIMING_CATEGORY_KEYS = exports.MAX_PRIMING_TEXT_LENGTH = exports.NURTURE_GOAL_METADATA = exports.NURTURE_GOALS = void 0;
 exports.isNurtureGoal = isNurtureGoal;
 exports.isPrimingCategoryKey = isPrimingCategoryKey;
 exports.getPrimingCategoriesForGoal = getPrimingCategoriesForGoal;
@@ -483,3 +483,8 @@ exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = {
 function getTopicExclusionKey(goal) {
     return exports.TOPIC_EXCLUSION_KEYS_BY_GOAL[goal] ?? null;
 }
+// =============================================================================
+// Inference — v0.3.0 (signal-aware + lead-state goal inference)
+// =============================================================================
+var infer_1 = require("./infer");
+Object.defineProperty(exports, "inferNurtureGoal", { enumerable: true, get: function () { return infer_1.inferNurtureGoal; } });

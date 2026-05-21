@@ -140,4 +140,5 @@ export declare const TOPIC_EXCLUSION_KEYS_BY_GOAL: Readonly<Partial<Record<Nurtu
  * filter / skip the guardrail check).
  */
 export declare function getTopicExclusionKey(goal: NurtureGoal): string | null;
+export { inferNurtureGoal, type NurtureGoalInferenceInput } from './infer';
 //# sourceMappingURL=index.d.ts.map

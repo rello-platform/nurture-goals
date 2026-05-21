@@ -1,15 +1,17 @@
 {
   "name": "@rello-platform/nurture-goals",
-  "version": "0.2.0",
-  "description": "Canonical NurtureGoal registry + priming/topic-exclusion metadata for the Rello platform — consumed by Rello (campaigns) and Milo Engine (goal-driven composition).",
+  "version": "0.3.0",
+  "description": "Canonical NurtureGoal registry + priming/topic-exclusion metadata + inferNurtureGoal lead-state inference for the Rello platform — consumed by Rello (campaigns + nurture-precedence-authority connector) and Milo Engine (goal-driven composition).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": ["dist", "src", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "typescript": "^5.4.0"
   },
   "repository": {

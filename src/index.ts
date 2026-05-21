@@ -523,3 +523,10 @@ export const TOPIC_EXCLUSION_KEYS_BY_GOAL: Readonly<Partial<Record<NurtureGoal, 
 export function getTopicExclusionKey(goal: NurtureGoal): string | null {
   return TOPIC_EXCLUSION_KEYS_BY_GOAL[goal] ?? null;
 }
+
+// =============================================================================
+// Inference — v0.3.0 (signal-aware + lead-state goal inference)
+// =============================================================================
+
+export { inferNurtureGoal, type NurtureGoalInferenceInput } from './infer';
+

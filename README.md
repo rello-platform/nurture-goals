@@ -9,6 +9,7 @@ Canonical NurtureGoal registry and agent-facing priming metadata for the Rello p
 - **`PRIMING_CATEGORIES_BY_GOAL`** — agent priming-facts category registry. Every goal gets 6 universal categories (thesis, audience_note, lean_into, steer_clear, frame, cta) plus 1–3 goal-specific categories. Priming follows the AboutMe pattern (see Lead-Cohort-Campaign spec B-03) — per-entry `{ text, category }`, 280-char cap, at least one required per required category before launch.
 - **`TOPIC_EXCLUSION_KEYS_BY_GOAL`** — maps each goal to its `Lead.leadTopicExclusions` key, so an opted-out lead is skipped at cohort-resolve and blocked mid-flight. RELATIONSHIP and BRAND_AWARENESS are intentionally omitted.
 - **Helpers** — `isNurtureGoal`, `isPrimingCategoryKey`, `isValidPrimingCategoryForGoal`, `getRequiredPrimingCategoryKeys`, `getPrimingCategoriesForGoal`, `getTopicExclusionKey`.
+- **`inferNurtureGoal`** (v0.3.0) — pure function `(NurtureGoalInferenceInput) => NurtureGoal | null` covering lead-state goal inference (Harvest Home intent-type routing + post-sale + COLD-engagement fallthrough + reactivation triggers). Returns `null` for structurally non-goal-shift signals (`appraisal_concern`, `email_complained`, `agent_action.*`, `deal_distress.*`, `compliance.*`) so callers can short-circuit without writing precedence-authority audit rows. Consumed by Milo Engine's `resolveNurtureGoalRaw` wrapper and Rello's signal-driven precedence-authority connector.
 
 ## Coordination with Milo Engine
 
@@ -18,6 +19,8 @@ Milo's `NurtureGoal` type in `Milo-Engine/src/lib/nurture-goals.ts` must match t
 
 ## Versioning
 
+- `0.3.0` — adds `inferNurtureGoal(input: NurtureGoalInferenceInput): NurtureGoal | null`. Logic ported verbatim from Milo Engine's `resolveNurtureGoalRaw` lead-state inference (sans REALTOR_PROSPECT short-circuit, which stays in Milo's outer wrapper to preserve role-narrowing semantics). Signal-aware non-goal-shift filter returns `null` for `appraisal_concern`, `email_complained`, `email_unsubscribed`, `email_bounced`, and any `agent_action.*` / `deal_distress.*` / `compliance.*` prefix. Per NURTURE-PRECEDENCE-AUTHORITY-SPEC-260520 Hole 1 amendment + DECISIONS-260519 D2-CORRECTED.
+- `0.2.0` — REALTOR_CULTIVATION goal added (REALTOR-PROSPECT-PIPELINE D21).
 - `0.1.0` — initial publish; 10-goal registry, priming categories, topic-exclusion map. Consumed by Rello's Phase 1 schema + seed (campaigns feature, 2026-04-21).
 
 Follow the same `github:rello-platform/nurture-goals#vX.Y.Z` tag-based consumption model as `@rello-platform/slugs`.
