@@ -30,28 +30,51 @@ function baseInput(overrides = {}) {
   };
 }
 
-describe('inferNurtureGoal — non-goal-shift signal filter (null returns)', () => {
-  it('returns null for appraisal_concern signal', () => {
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'appraisal_concern' })), null);
+describe('inferNurtureGoal — registry-driven non-goal-shift gate (Wave B; null returns)', () => {
+  // THE LIVE BUG (DISCOVERED-NURTURE-GOAL-INFER-IGNORES-SPOKE-PREFIXED-SIGNAL-
+  // TYPES-260521): Newsletter-Studio emits email_* BARE; Rello's
+  // /api/signals/batch namespace-prefixes them to `newsletter_studio.email_*`,
+  // which the pre-Wave-B bare-name exclusion set never matched → fell through to
+  // HOME_PURCHASE → spurious blocked_no_matching_campaign rows. The registry-
+  // driven gate (`isGoalShiftSignal` normalizes internally + consults the
+  // registry, where NS email lifecycle is `goalShiftSemantics:false`) closes it.
+  it('returns null for newsletter_studio.email_complained — THE bug form (receiver-prefixed)', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'newsletter_studio.email_complained' })), null);
   });
-  it('returns null for email_complained signal', () => {
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'email_complained' })), null);
+  it('returns null for newsletter_studio.email_unsubscribed + email_bounced', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'newsletter_studio.email_unsubscribed' })), null);
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'newsletter_studio.email_bounced' })), null);
   });
-  it('returns null for email_unsubscribed signal', () => {
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'email_unsubscribed' })), null);
+  it('returns null for the canonical hyphen form too (newsletter-studio.email_complained)', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'newsletter-studio.email_complained' })), null);
   });
-  it('returns null for email_bounced signal', () => {
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'email_bounced' })), null);
+  it('returns null for PFP bare compliance.config_changed (alias-folded → registered pathfinder-pro.compliance.config_changed)', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'compliance.config_changed' })), null);
   });
-  it('returns null for agent_action.* signal prefix', () => {
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'agent_action.task_completed' })), null);
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'agent_action.note_added' })), null);
+  it('returns null for canonical pathfinder-pro.compliance.gate_blocked', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'pathfinder-pro.compliance.gate_blocked' })), null);
   });
-  it('returns null for deal_distress.* signal prefix', () => {
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'deal_distress.appraisal_low' })), null);
+});
+
+describe('inferNurtureGoal — fail-open for deferred / unregistered forms (Wave B; deliberate SPEC behavior)', () => {
+  // Wave B narrows the gate from the pre-Wave-B "bare names + 3 prefixes
+  // regardless of emitter" to "registered canonical forms". The forms below
+  // were in the old local exclusion set but (a) have NO live emitter reaching
+  // the connector (verified — appraisal_concern / agent_action.* / deal_distress.*
+  // are emitted nowhere; bare email_* always arrives receiver-prefixed) and
+  // (b) cannot be canonicalized without a slug owner — deferred to Wave C/D
+  // (DISCOVERED filed). Fail-open is the deliberate gate semantics (SPEC §8
+  // decision 9): an unregistered/unnormalizable type proceeds to lead-state
+  // inference rather than being silently suppressed.
+  it('bare appraisal_concern (no slug owner, no live emitter) → fail-open → lead-state goal', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'appraisal_concern' })), 'HOME_PURCHASE');
   });
-  it('returns null for compliance.* signal prefix', () => {
-    assert.equal(inferNurtureGoal(baseInput({ signalType: 'compliance.consent_revoked' })), null);
+  it('bare email_complained (un-prefixed; production path always prefixes via the receiver) → fail-open', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'email_complained' })), 'HOME_PURCHASE');
+  });
+  it('agent_action.* / deal_distress.* (no live emitter; deferred Wave C/D) → fail-open', () => {
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'agent_action.task_completed' })), 'HOME_PURCHASE');
+    assert.equal(inferNurtureGoal(baseInput({ signalType: 'deal_distress.appraisal_low' })), 'HOME_PURCHASE');
   });
 });
 

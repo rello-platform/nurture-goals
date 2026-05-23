@@ -29,6 +29,8 @@
  *   (lines 28-58) + DECISIONS-260519.md D2-CORRECTED.
  */
 
+import { isGoalShiftSignal } from '@rello-platform/signals';
+
 import { type NurtureGoal } from './index';
 
 export interface NurtureGoalInferenceInput {
@@ -74,35 +76,19 @@ export interface NurtureGoalInferenceInput {
   };
 }
 
-/**
- * SignalTypes that are structurally non-goal-shift. Callers receive `null`
- * and short-circuit without writing precedence-authority audit rows.
- *
- * Sourced from NURTURE-PRECEDENCE-AUTHORITY-SPEC-260520.md Hole 1 amendment
- * (line 39 enumerates the canonical non-goal-shift examples).
- */
-const NON_GOAL_SHIFT_SIGNAL_TYPES: ReadonlySet<string> = new Set([
-  'appraisal_concern',
-  'email_complained',
-  'email_unsubscribed',
-  'email_bounced',
-]);
-
-/**
- * SignalType prefixes that are non-goal-shift. Matches any signalType
- * beginning with the prefix (e.g., `agent_action.task_completed`,
- * `deal_distress.appraisal_low`, `compliance.consent_revoked`).
- */
-const NON_GOAL_SHIFT_SIGNAL_PREFIXES: ReadonlyArray<string> = [
-  'agent_action.',
-  'deal_distress.',
-  'compliance.',
-];
-
-function isNonGoalShiftSignal(signalType: string): boolean {
-  if (NON_GOAL_SHIFT_SIGNAL_TYPES.has(signalType)) return true;
-  return NON_GOAL_SHIFT_SIGNAL_PREFIXES.some((p) => signalType.startsWith(p));
-}
+// The non-goal-shift gate is now registry-driven via
+// `@rello-platform/signals::isGoalShiftSignal` (Signal-Type Registry Wave B).
+// The former local `NON_GOAL_SHIFT_SIGNAL_TYPES` set + `NON_GOAL_SHIFT_SIGNAL_
+// PREFIXES` + `isNonGoalShiftSignal` were removed: they matched BARE names
+// (`email_complained`, `appraisal_concern`) and three dotted prefixes
+// (`agent_action.`/`deal_distress.`/`compliance.`) but NOT the receiver-
+// prefixed production form (`newsletter_studio.email_complained`), so those
+// fell through to lead-state inference → HOME_PURCHASE → a spurious
+// `blocked_no_matching_campaign` audit row. `isGoalShiftSignal` normalizes the
+// raw type internally (folding the underscore-slug prefix to canonical hyphen)
+// and consults the registry, where the Newsletter-Studio email lifecycle is
+// registered `goalShiftSemantics:false`. See SPEC §4 + §8 decision 9 and
+// DISCOVERED-NURTURE-GOAL-INFER-IGNORES-SPOKE-PREFIXED-SIGNAL-TYPES-260521.
 
 /**
  * Port of `resolveNurtureGoalRaw` lead-state inference logic
@@ -221,7 +207,14 @@ function getDaysSince(dateStr: string | undefined): number {
  * and run lead-state inference unconditionally.
  */
 export function inferNurtureGoal(input: NurtureGoalInferenceInput): NurtureGoal | null {
-  if (isNonGoalShiftSignal(input.signalType)) {
+  // Registry-driven non-goal-shift gate (Wave B). `isGoalShiftSignal` returns
+  // `false` ONLY for a type that normalizes to a registered key with
+  // `goalShiftSemantics:false`; it FAILS OPEN (`true`) for unregistered, null,
+  // or unrecognized types — so the `__milo_compose__` sentinel (unregistered)
+  // fails open → `!true === false` → does NOT return null → proceeds to
+  // lead-state inference, byte-identical to the pre-Wave-B behavior. SPEC §8
+  // decision 9.
+  if (!isGoalShiftSignal(input.signalType)) {
     return null;
   }
   return inferFromLeadState(input.lead, input.engagement);
