@@ -100,11 +100,16 @@ export declare function inferNurtureGoal(input: NurtureGoalInferenceInput): Nurt
  *   - DSCR → "qualify on the property's cash flow, not personal income".
  *   - VA_PURCHASE → $0-down eligibility (entitlement-conditional).
  *   - FHA_PURCHASE → low-down / flexible-credit.
+ *   - NON_QM → bank-statement / alt-doc financing for self-employed borrowers
+ *     (06152026 HS-SCOUT-FIELDS STEP 2 — driven by scout_income_type /
+ *     scout_files_tax_returns).
+ *   - CONSTRUCTION → ground-up build or renovation financing
+ *     (06152026 HS-SCOUT-FIELDS STEP 2 — driven by scout_construction_type).
  *
  * `null` means no program could be inferred → no program-specific hook fires
  * (the message stays purely goal-driven, byte-identical to pre-P3 behavior).
  */
-export declare const LOAN_PROGRAMS: readonly ["VA_PURCHASE", "VA_IRRRL", "FHA_PURCHASE", "FHA_STREAMLINE", "FHA_CASHOUT", "CONVENTIONAL", "DSCR"];
+export declare const LOAN_PROGRAMS: readonly ["VA_PURCHASE", "VA_IRRRL", "FHA_PURCHASE", "FHA_STREAMLINE", "FHA_CASHOUT", "CONVENTIONAL", "DSCR", "NON_QM", "CONSTRUCTION"];
 export type LoanProgram = (typeof LOAN_PROGRAMS)[number];
 /** Type guard: is this value a canonical LoanProgram? */
 export declare function isLoanProgram(value: unknown): value is LoanProgram;
@@ -125,6 +130,17 @@ export interface LoanProgramInferenceInput {
      *  - `hh_intent_type`        — HH intent (REFI / RATE_WATCH / BUY / INVEST …)
      *                              used to decide purchase-vs-refinance phase when
      *                              `pfp_loan_purpose` is absent.
+     *  - `scout_*`               — Home-Scout contact-form answers (06152026
+     *                              STEP 2; lowest-precedence source). Reads
+     *                              scout_income_type, scout_files_tax_returns
+     *                              (→ NON_QM), scout_is_investment /
+     *                              scout_occupancy / scout_rentals_owned (→ DSCR),
+     *                              scout_va_eligible (→ VA), scout_construction_type
+     *                              (→ CONSTRUCTION), scout_first_time_buyer /
+     *                              scout_down_payment (→ FHA_PURCHASE),
+     *                              scout_loan_purpose / scout_refi_goal (→ refi
+     *                              phase). NEVER reads any COMPLIANCE-HOLD key
+     *                              (e.g. scout_age_62_plus — prohibited-basis age).
      */
     metadata: Record<string, unknown>;
     /**
@@ -138,21 +154,30 @@ export interface LoanProgramInferenceInput {
 /**
  * Infer the loan-program dimension for a lead. Deterministic, null-safe.
  *
- * Resolution order (most-specific program first):
- *  1. DSCR — `dscr_intent_type` / `dscr_loan_purpose` markers (investor).
- *  2. VA family:
+ * Resolution order (most-specific / highest-confidence program first). PFP /
+ * veteran-flag sources (agency intake) outrank self-reported Home-Scout
+ * contact-form answers within the same family, but the scout `*` fields add
+ * families PFP never carries (Non-QM, Construction):
+ *  1. DSCR — `dscr_*` markers OR Home-Scout investor signals.
+ *  2. VA family (PFP veteran flag / eligible-programs OR `scout_va_eligible`):
  *       - refinance phase → `VA_IRRRL` (the streamline refi).
  *       - purchase / unknown phase → `VA_PURCHASE`.
- *  3. FHA family:
+ *  3. NON_QM — Home-Scout self-employed / no-tax-return signals (a self-employed
+ *     INVESTOR is already DSCR above; this is the owner-occupant alt-doc path).
+ *  4. CONSTRUCTION — Home-Scout building / renovating.
+ *  5. FHA family:
  *       - cash-out refi → `FHA_CASHOUT`.
  *       - other refinance → `FHA_STREAMLINE`.
- *       - purchase / unknown phase → `FHA_PURCHASE`.
- *  4. Conventional family → `CONVENTIONAL`.
- *  5. Otherwise → `null` (no program inferable — no hook fires).
+ *       - purchase / unknown phase, OR a Home-Scout first-time / low-down lead
+ *         → `FHA_PURCHASE`.
+ *  6. Conventional family → `CONVENTIONAL`.
+ *  7. Otherwise → `null` (no program inferable — no hook fires).
  *
  * VA precedes FHA precedes Conventional because the most-specific eligibility
  * (veteran entitlement) carries the strongest program-specific hook, and a lead
  * eligible for multiple programs should be spoken to in the highest-value lane.
+ * DSCR precedes NON_QM because a self-employed investor is best served by the
+ * property-cash-flow (DSCR) angle, not the personal alt-doc (bank-statement) one.
  *
  * Never throws; missing / null / wrong-type inputs degrade to `null`.
  */

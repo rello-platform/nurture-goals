@@ -524,7 +524,8 @@ describe('P3 — inferLoanProgram (the loanProgram dimension)', () => {
     assert.ok(isLoanProgram('VA_IRRRL'));
     assert.ok(!isLoanProgram('NOPE'));
     assert.ok(!isLoanProgram(null));
-    assert.equal(LOAN_PROGRAMS.length, 7);
+    // 7 at P3; STEP 2 (06152026) added NON_QM + CONSTRUCTION → 9.
+    assert.equal(LOAN_PROGRAMS.length, 9);
   });
 });
 
@@ -561,5 +562,190 @@ describe('P3 — inferNurtureContext (goal + loanProgram in one call)', () => {
     }));
     assert.equal(ctx.goal, null);
     assert.equal(ctx.loanProgram, 'FHA_PURCHASE');
+  });
+});
+
+// ===========================================================================
+// STEP 2 — Home-Scout contact-form (`scout_*`) branching (06152026).
+//   Goal routing (inferFromLeadState, TERTIARY source) + program routing
+//   (inferLoanProgram). All slug values byte-matched to the HS catalog
+//   (~/The-Home-Scout/src/lib/contact-question-catalog.ts @ a08db41).
+// ===========================================================================
+
+function scoutLead(scoutMeta) {
+  return baseInput({
+    signalType: '__milo_compose__',
+    lead: { stage: null, metadata: scoutMeta, entityType: 'LEAD' },
+  });
+}
+function scoutProgram(scoutMeta) {
+  return inferLoanProgram({ metadata: scoutMeta });
+}
+
+describe('STEP 2 — scout NON_QM / bank-statement program', () => {
+  it('scout_income_type=self-employed → NON_QM', () => {
+    assert.equal(scoutProgram({ scout_income_type: 'self-employed' }), 'NON_QM');
+  });
+  it('scout_income_type=1099-contractor → NON_QM', () => {
+    assert.equal(scoutProgram({ scout_income_type: '1099-contractor' }), 'NON_QM');
+  });
+  it('scout_income_type=business-owner → NON_QM', () => {
+    assert.equal(scoutProgram({ scout_income_type: 'business-owner' }), 'NON_QM');
+  });
+  it('scout_files_tax_returns=no → NON_QM (even with w-2 income)', () => {
+    assert.equal(scoutProgram({ scout_income_type: 'w-2-employee', scout_files_tax_returns: 'no' }), 'NON_QM');
+  });
+  it('scout_income_type=w-2-employee → NOT NON_QM (standard path → null)', () => {
+    assert.equal(scoutProgram({ scout_income_type: 'w-2-employee' }), null);
+  });
+  it('scout_files_tax_returns=yes alone → NOT NON_QM (null)', () => {
+    assert.equal(scoutProgram({ scout_files_tax_returns: 'yes' }), null);
+  });
+});
+
+describe('STEP 2 — scout DSCR / investor (goal INVESTOR + program DSCR)', () => {
+  it('scout_is_investment=yes → goal INVESTOR + program DSCR', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_is_investment: 'yes' }));
+    assert.deepEqual(ctx, { goal: 'INVESTOR', loanProgram: 'DSCR' });
+  });
+  it('scout_rentals_owned=1-3 → goal INVESTOR + program DSCR', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_rentals_owned: '1-3' }));
+    assert.deepEqual(ctx, { goal: 'INVESTOR', loanProgram: 'DSCR' });
+  });
+  it('scout_rentals_owned=4 → goal INVESTOR + program DSCR', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_rentals_owned: '4' }));
+    assert.deepEqual(ctx, { goal: 'INVESTOR', loanProgram: 'DSCR' });
+  });
+  it('scout_rentals_owned=0 → NOT investor (null program, HOME_PURCHASE goal)', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_rentals_owned: '0' }));
+    assert.equal(ctx.goal, 'HOME_PURCHASE');
+    assert.equal(ctx.loanProgram, null);
+  });
+  it('self-employed INVESTOR → DSCR (not NON_QM — DSCR is more specific)', () => {
+    assert.equal(scoutProgram({ scout_income_type: 'self-employed', scout_is_investment: 'yes' }), 'DSCR');
+  });
+  it('scout_occupancy=investment → goal INVESTOR + program DSCR', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_occupancy: 'investment' }));
+    assert.deepEqual(ctx, { goal: 'INVESTOR', loanProgram: 'DSCR' });
+  });
+});
+
+describe('STEP 2 — scout VA program (scout_va_eligible)', () => {
+  it('scout_va_eligible=yes (purchase phase) → VA_PURCHASE', () => {
+    assert.equal(scoutProgram({ scout_va_eligible: 'yes' }), 'VA_PURCHASE');
+  });
+  it('scout_va_eligible=yes + refinance → VA_IRRRL', () => {
+    assert.equal(scoutProgram({ scout_va_eligible: 'yes', scout_loan_purpose: 'refinance' }), 'VA_IRRRL');
+  });
+  it('scout_va_eligible=no → not VA (null)', () => {
+    assert.equal(scoutProgram({ scout_va_eligible: 'no' }), null);
+  });
+});
+
+describe('STEP 2 — scout CONSTRUCTION program', () => {
+  it('scout_construction_type=building → CONSTRUCTION', () => {
+    assert.equal(scoutProgram({ scout_construction_type: 'building' }), 'CONSTRUCTION');
+  });
+  it('scout_construction_type=renovating → CONSTRUCTION', () => {
+    assert.equal(scoutProgram({ scout_construction_type: 'renovating' }), 'CONSTRUCTION');
+  });
+  it('scout_construction_type=buying → NOT construction (null — ordinary purchase)', () => {
+    assert.equal(scoutProgram({ scout_construction_type: 'buying' }), null);
+  });
+});
+
+describe('STEP 2 — scout refinance goal routing', () => {
+  it('scout_loan_purpose=refinance → REFINANCE goal', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_loan_purpose: 'refinance' }));
+    assert.equal(ctx.goal, 'REFINANCE');
+  });
+  it('scout_refi_goal=lower-payment → REFINANCE goal', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_refi_goal: 'lower-payment' }));
+    assert.equal(ctx.goal, 'REFINANCE');
+  });
+  it('scout_refi_goal=cash-out → EQUITY_ACCESS goal (mirrors P1 cash-out map)', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_refi_goal: 'cash-out' }));
+    assert.equal(ctx.goal, 'EQUITY_ACCESS');
+  });
+});
+
+describe('STEP 2 — scout FHA / first-time / DPA education', () => {
+  it('scout_first_time_buyer=yes → FHA_PURCHASE', () => {
+    assert.equal(scoutProgram({ scout_first_time_buyer: 'yes' }), 'FHA_PURCHASE');
+  });
+  it('scout_down_payment=none-yet → FHA_PURCHASE', () => {
+    assert.equal(scoutProgram({ scout_down_payment: 'none-yet' }), 'FHA_PURCHASE');
+  });
+  it('scout_down_payment=under-5 → FHA_PURCHASE', () => {
+    assert.equal(scoutProgram({ scout_down_payment: 'under-5' }), 'FHA_PURCHASE');
+  });
+  it('scout_down_payment=20-plus → NOT FHA-leaning (null)', () => {
+    assert.equal(scoutProgram({ scout_down_payment: '20-plus' }), null);
+  });
+});
+
+describe('STEP 2 — scout RE-hat buyer/seller goal routing', () => {
+  it('scout_buy_sell=buying → HOME_PURCHASE goal', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_buy_sell: 'buying' }));
+    assert.equal(ctx.goal, 'HOME_PURCHASE');
+  });
+  it('scout_buy_sell=selling → HOME_SALE goal', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_buy_sell: 'selling' }));
+    assert.equal(ctx.goal, 'HOME_SALE');
+  });
+  it('scout_buy_sell=both → HOME_PURCHASE goal (buyer-flavor)', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_buy_sell: 'both' }));
+    assert.equal(ctx.goal, 'HOME_PURCHASE');
+  });
+});
+
+describe('STEP 2 — compliance hold (scout_age_62_plus) is EXCLUDED / DORMANT', () => {
+  it('scout_age_62_plus=yes does NOT change goal (stays HOME_PURCHASE default)', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_age_62_plus: 'yes' }));
+    assert.equal(ctx.goal, 'HOME_PURCHASE');
+    assert.equal(ctx.loanProgram, null);
+  });
+  it('scout_age_62_plus does NOT produce any loan program', () => {
+    assert.equal(scoutProgram({ scout_age_62_plus: 'yes' }), null);
+  });
+  it('scout_age_62_plus alongside a real signal does not alter that signal', () => {
+    // A VA-eligible 62+ lead is routed purely by VA — the age key is inert.
+    assert.equal(scoutProgram({ scout_age_62_plus: 'yes', scout_va_eligible: 'yes' }), 'VA_PURCHASE');
+  });
+});
+
+describe('STEP 2 — precedence: hh_* and pfp_*/dscr_* win over scout_*', () => {
+  it('hh_intent_type=BUY beats scout investor signal (goal HOME_PURCHASE)', () => {
+    const ctx = inferNurtureContext(scoutLead({ hh_intent_type: 'BUY', scout_is_investment: 'yes' }));
+    assert.equal(ctx.goal, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose=PURCHASE beats scout refinance signal (goal HOME_PURCHASE)', () => {
+    const ctx = inferNurtureContext(scoutLead({ pfp_loan_purpose: 'PURCHASE', scout_loan_purpose: 'refinance' }));
+    assert.equal(ctx.goal, 'HOME_PURCHASE');
+  });
+  it('pfp veteran flag program (VA_PURCHASE) still wins for program dimension', () => {
+    // pfp veteran → VA_PURCHASE even if scout says self-employed (NON_QM).
+    assert.equal(scoutProgram({ pfp_is_veteran: true, scout_income_type: 'self-employed' }), 'VA_PURCHASE');
+  });
+});
+
+describe('STEP 2 — LOAN_PROGRAMS union grew by NON_QM + CONSTRUCTION', () => {
+  it('LOAN_PROGRAMS now has 9 members incl. NON_QM + CONSTRUCTION', () => {
+    assert.equal(LOAN_PROGRAMS.length, 9);
+    assert.ok(LOAN_PROGRAMS.includes('NON_QM'));
+    assert.ok(LOAN_PROGRAMS.includes('CONSTRUCTION'));
+    assert.ok(isLoanProgram('NON_QM'));
+    assert.ok(isLoanProgram('CONSTRUCTION'));
+  });
+});
+
+describe('STEP 2 — empty/null-safe (no scout fields → byte-identical behavior)', () => {
+  it('plain lead with no scout fields → HOME_PURCHASE + null program', () => {
+    const ctx = inferNurtureContext(scoutLead({}));
+    assert.deepEqual(ctx, { goal: 'HOME_PURCHASE', loanProgram: null });
+  });
+  it('scout fields present but all empty strings → no branch fires', () => {
+    const ctx = inferNurtureContext(scoutLead({ scout_income_type: '', scout_buy_sell: '', scout_loan_purpose: '' }));
+    assert.deepEqual(ctx, { goal: 'HOME_PURCHASE', loanProgram: null });
   });
 });
