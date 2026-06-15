@@ -181,6 +181,36 @@ function inferFromLeadState(
     return 'INVESTOR';
   }
 
+  // -- Home-Scout contact-form routing (TERTIARY source; 06152026 STEP 2) --
+  // Lowest-precedence goal source: fires ONLY when neither HH intent nor a PFP
+  // agency/DSCR marker stamped a goal above. The `scout_*` keys come from the
+  // Home-Scout contact-form catalog (forward contract → scout-fields v0.4.0).
+  // Order is most-specific-first; each returns a goal that already exists in the
+  // enum (no new goal is added by STEP 2 — the new dimensions are loanPrograms).
+  //
+  // 1. Investor / DSCR scout signals → INVESTOR (same goal PFP DSCR routes to).
+  if (isScoutInvestorSignal(meta)) {
+    return 'INVESTOR';
+  }
+  // 2. Refinance scout signals → REFINANCE, or EQUITY_ACCESS for cash-out
+  //    (mirrors the P1 cash-out → EQUITY_ACCESS mapping).
+  const scoutRefi = scoutRefinanceGoal(meta);
+  if (scoutRefi !== null) {
+    return scoutRefi;
+  }
+  // 3. Real-estate-hat scout signals → buyer (HOME_PURCHASE) / seller
+  //    (HOME_SALE) nurture, NOT a mortgage goal. The MLO cross-sell handoff for
+  //    a not-pre-approved buyer is a Rello signal concern (see DISCOVERED), not
+  //    a goal decision.
+  const scoutRe = scoutRealEstateGoal(meta);
+  if (scoutRe !== null) {
+    return scoutRe;
+  }
+  // (A scout purchase / first-time-buyer / construction lead with no more-
+  //  specific signal falls through to the HOME_PURCHASE default below — the
+  //  loan-program dimension still surfaces FHA_PURCHASE / CONSTRUCTION / NON_QM
+  //  via inferLoanProgram, which is where that nuance is carried.)
+
   // Cold HH lead with no engagement → brand awareness (engagement-conditional;
   // callers without engagement context fall through to post-sale / default).
   if (hhTemperature === 'COLD' && engagement && isLowEngagement(engagement)) {
@@ -320,6 +350,105 @@ function isDscrInvestorSignal(meta: Record<string, unknown>): boolean {
   return false;
 }
 
+// =============================================================================
+// Home-Scout contact-form fields (`scout_*`) — TERTIARY inference source.
+//   06152026 HS-SCOUT-FIELDS STEP 2 (06142026-NURTURE-AUDIT).
+//
+//   Precedence: hh_intent_type (P1) wins; pfp_*/dscr_* (P1/P3) next; scout_*
+//   fields are the lowest-precedence source and fire ONLY when the higher
+//   sources stamped nothing. Mirrors the SECONDARY-source pattern P1/P3 used
+//   for pfp_loan_purpose / dscr_intent_type.
+//
+//   Values are the EXACT slug `value`s the Home-Scout contact-question catalog
+//   ships (~/The-Home-Scout/src/lib/contact-question-catalog.ts @ a08db41,
+//   slugified via its `opts()` helper: lowercase, non-alphanumeric runs → `-`).
+//   They are the forward contract registered in @rello-platform/scout-fields
+//   v0.4.0 MILO_AWARE_FIELDS. A typo here = a silently-dropped branch.
+// =============================================================================
+
+/**
+ * `scout_*` keys under a compliance HOLD — they encode a prohibited-basis
+ * attribute (ECOA / Reg B) or otherwise require counsel review before any
+ * nurture logic may rely on them. The inference MUST NEVER read or branch on a
+ * key in this set; it stays DORMANT until counsel clears it.
+ *
+ * Mirrors `@rello-platform/scout-fields` `COMPLIANCE_HOLD_KEYS` /
+ * `isComplianceHold()` (the canonical contract; today `{scout_age_62_plus}` —
+ * prohibited-basis age). Hardcoded here (rather than importing scout-fields) so
+ * this package stays dependency-light — nurture-goals reads RAW `scout_*` keys
+ * off `Lead.customFields`, it does not resolve field definitions. If scout-fields
+ * adds a hold key, mirror it here (and the unit test pins the exclusion).
+ */
+const SCOUT_COMPLIANCE_HOLD_KEYS: ReadonlySet<string> = new Set<string>([
+  'scout_age_62_plus',
+]);
+
+/** True if a scout_* key is on the compliance hold list (never branch on it). */
+function isScoutComplianceHold(key: string): boolean {
+  return SCOUT_COMPLIANCE_HOLD_KEYS.has(key);
+}
+
+/** Read a scout_* field as a normalized lowercase string, or '' if absent/wrong-type/on-hold. */
+function scoutStr(meta: Record<string, unknown>, key: string): string {
+  // Defense-in-depth: a hold key must NEVER be read, even by an internal helper.
+  if (isScoutComplianceHold(key)) return '';
+  const raw = meta[key];
+  if (typeof raw !== 'string') return '';
+  return raw.trim().toLowerCase();
+}
+
+/**
+ * Is this a Home-Scout INVESTOR/DSCR lead? Reads the investor scout fields:
+ *   - `scout_is_investment === 'yes'`, OR
+ *   - `scout_occupancy === 'investment'` (the qualifying-pack occupancy field), OR
+ *   - `scout_rentals_owned ∈ {1-3, 4} (i.e. owns ≥1 rental — not '0').
+ * `scout_expected_rent` is NOT a routing trigger (it is DSCR framing detail used
+ * by the composition hook). Null-safe; '' / unknown → false.
+ */
+function isScoutInvestorSignal(meta: Record<string, unknown>): boolean {
+  if (scoutStr(meta, 'scout_is_investment') === 'yes') return true;
+  if (scoutStr(meta, 'scout_occupancy') === 'investment') return true;
+  const rentals = scoutStr(meta, 'scout_rentals_owned');
+  // Catalog values slugify to '0', '1-3', '4'. Anything other than '0'/'' means
+  // the borrower owns at least one rental → investor.
+  if (rentals !== '' && rentals !== '0') return true;
+  return false;
+}
+
+/**
+ * Is this a Home-Scout REFINANCE lead, and toward which goal?
+ *   - `scout_loan_purpose === 'refinance'` OR any non-empty `scout_refi_goal`
+ *     means a refinance.
+ *   - `scout_refi_goal === 'cash-out'` routes the GOAL to EQUITY_ACCESS (mirrors
+ *     the P1 cash-out → EQUITY_ACCESS mapping); every other refi goal → REFINANCE.
+ * Returns 'EQUITY_ACCESS' | 'REFINANCE' | null (not a refi).
+ */
+function scoutRefinanceGoal(meta: Record<string, unknown>): NurtureGoal | null {
+  const purpose = scoutStr(meta, 'scout_loan_purpose');
+  const refiGoal = scoutStr(meta, 'scout_refi_goal');
+  const isRefi = purpose === 'refinance' || refiGoal !== '';
+  if (!isRefi) return null;
+  if (refiGoal === 'cash-out') return 'EQUITY_ACCESS';
+  return 'REFINANCE';
+}
+
+/**
+ * Map a Home-Scout REAL-ESTATE-hat lead to its buyer/seller nurture goal.
+ *   - `scout_buy_sell === 'selling'` → HOME_SALE.
+ *   - `scout_buy_sell ∈ {buying, both}` → HOME_PURCHASE (buyer-flavor).
+ * Returns the RE goal, or null when no RE-hat signal is present.
+ *
+ * NOTE the cross-sell handoff (an RE buyer with `scout_pre_approved === 'no'`)
+ * is a Rello-side signal/enrollment concern, NOT a goal decision — it is filed
+ * as a DISCOVERED with the exact mechanism, not implemented in this package.
+ */
+function scoutRealEstateGoal(meta: Record<string, unknown>): NurtureGoal | null {
+  const buySell = scoutStr(meta, 'scout_buy_sell');
+  if (buySell === 'selling') return 'HOME_SALE';
+  if (buySell === 'buying' || buySell === 'both') return 'HOME_PURCHASE';
+  return null;
+}
+
 function isLowEngagement(engagement: NonNullable<NurtureGoalInferenceInput['engagement']>): boolean {
   const messages = engagement.recentMessages || [];
   if (messages.length === 0) return true;
@@ -384,6 +513,11 @@ export function inferNurtureGoal(input: NurtureGoalInferenceInput): NurtureGoal 
  *   - DSCR → "qualify on the property's cash flow, not personal income".
  *   - VA_PURCHASE → $0-down eligibility (entitlement-conditional).
  *   - FHA_PURCHASE → low-down / flexible-credit.
+ *   - NON_QM → bank-statement / alt-doc financing for self-employed borrowers
+ *     (06152026 HS-SCOUT-FIELDS STEP 2 — driven by scout_income_type /
+ *     scout_files_tax_returns).
+ *   - CONSTRUCTION → ground-up build or renovation financing
+ *     (06152026 HS-SCOUT-FIELDS STEP 2 — driven by scout_construction_type).
  *
  * `null` means no program could be inferred → no program-specific hook fires
  * (the message stays purely goal-driven, byte-identical to pre-P3 behavior).
@@ -396,6 +530,13 @@ export const LOAN_PROGRAMS = [
   'FHA_CASHOUT',
   'CONVENTIONAL',
   'DSCR',
+  // 06152026 HS-SCOUT-FIELDS STEP 2 — two net-new program dimensions driven by
+  // Home-Scout contact-form fields (`scout_*`). Neither is a NurtureGoal: a
+  // Non-QM borrower is still a HOME_PURCHASE / REFINANCE / INVESTOR by goal, and
+  // a construction borrower is still a HOME_PURCHASE; the program rides
+  // alongside the goal and steers the composition prompt's program hook.
+  'NON_QM',
+  'CONSTRUCTION',
 ] as const;
 
 export type LoanProgram = (typeof LOAN_PROGRAMS)[number];
@@ -424,6 +565,17 @@ export interface LoanProgramInferenceInput {
    *  - `hh_intent_type`        — HH intent (REFI / RATE_WATCH / BUY / INVEST …)
    *                              used to decide purchase-vs-refinance phase when
    *                              `pfp_loan_purpose` is absent.
+   *  - `scout_*`               — Home-Scout contact-form answers (06152026
+   *                              STEP 2; lowest-precedence source). Reads
+   *                              scout_income_type, scout_files_tax_returns
+   *                              (→ NON_QM), scout_is_investment /
+   *                              scout_occupancy / scout_rentals_owned (→ DSCR),
+   *                              scout_va_eligible (→ VA), scout_construction_type
+   *                              (→ CONSTRUCTION), scout_first_time_buyer /
+   *                              scout_down_payment (→ FHA_PURCHASE),
+   *                              scout_loan_purpose / scout_refi_goal (→ refi
+   *                              phase). NEVER reads any COMPLIANCE-HOLD key
+   *                              (e.g. scout_age_62_plus — prohibited-basis age).
    */
   metadata: Record<string, unknown>;
   /**
@@ -461,6 +613,15 @@ function refinancePhase(meta: Record<string, unknown>): boolean | null {
   const hh = ((meta.hh_intent_type as string) || '').toUpperCase();
   if (hh === 'REFI' || hh === 'REFINANCE' || hh === 'RATE_WATCH') return true;
   if (hh === 'BUY') return false;
+
+  // Home-Scout refi signals (06152026 STEP 2; lowest-precedence). Lets a scout
+  // VA-eligible lead in the refinance pack resolve to VA_IRRRL (the streamline
+  // refi) rather than VA_PURCHASE. Compliance-hold keys are never read.
+  if (scoutRefinanceGoal(meta) !== null) return true;
+  if (scoutStr(meta, 'scout_construction_type') === 'buying' ||
+      scoutStr(meta, 'scout_first_time_buyer') === 'yes') {
+    return false;
+  }
   return null;
 }
 
@@ -494,24 +655,89 @@ function hasProgramFamily(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Home-Scout program signals (06152026 STEP 2). Read the `scout_*` fields that
+// carry program-family meaning. All slug values are byte-matched to the HS
+// catalog (a08db41). Compliance-hold keys are never read (scoutStr guards it).
+// ---------------------------------------------------------------------------
+
+/**
+ * Is this a Home-Scout Non-QM / bank-statement lead? Self-employed-shaped income
+ * or no 2-year tax-return history is the genuine Non-QM (alt-doc) trigger:
+ *   - `scout_income_type ∈ {self-employed, 1099-contractor, business-owner}`, OR
+ *   - `scout_files_tax_returns === 'no'`.
+ * `scout_income_type === 'w-2-employee'` is the STANDARD path and does NOT count.
+ * Null-safe; absent / unknown → false.
+ */
+function isScoutNonQm(meta: Record<string, unknown>): boolean {
+  const income = scoutStr(meta, 'scout_income_type');
+  if (
+    income === 'self-employed' ||
+    income === '1099-contractor' ||
+    income === 'business-owner'
+  ) {
+    return true;
+  }
+  if (scoutStr(meta, 'scout_files_tax_returns') === 'no') return true;
+  return false;
+}
+
+/**
+ * Is this a Home-Scout construction lead? `scout_construction_type ∈
+ * {building, renovating}` is construction financing; `buying` is NOT (it is an
+ * ordinary purchase). Null-safe; absent / unknown → false.
+ */
+function isScoutConstruction(meta: Record<string, unknown>): boolean {
+  const t = scoutStr(meta, 'scout_construction_type');
+  return t === 'building' || t === 'renovating';
+}
+
+/** Home-Scout VA eligibility flag — `scout_va_eligible === 'yes'`. */
+function isScoutVaEligible(meta: Record<string, unknown>): boolean {
+  return scoutStr(meta, 'scout_va_eligible') === 'yes';
+}
+
+/**
+ * Is this a Home-Scout FHA-leaning lead (first-time / low-down education)?
+ *   - `scout_first_time_buyer === 'yes'`, OR
+ *   - `scout_down_payment ∈ {none-yet, under-5}` (the two lowest catalog buckets).
+ * These are the borrowers FHA's low-down / flexible-credit angle is written for.
+ * Null-safe; absent / unknown → false.
+ */
+function isScoutFhaLeaning(meta: Record<string, unknown>): boolean {
+  if (scoutStr(meta, 'scout_first_time_buyer') === 'yes') return true;
+  const down = scoutStr(meta, 'scout_down_payment');
+  if (down === 'none-yet' || down === 'under-5') return true;
+  return false;
+}
+
 /**
  * Infer the loan-program dimension for a lead. Deterministic, null-safe.
  *
- * Resolution order (most-specific program first):
- *  1. DSCR — `dscr_intent_type` / `dscr_loan_purpose` markers (investor).
- *  2. VA family:
+ * Resolution order (most-specific / highest-confidence program first). PFP /
+ * veteran-flag sources (agency intake) outrank self-reported Home-Scout
+ * contact-form answers within the same family, but the scout `*` fields add
+ * families PFP never carries (Non-QM, Construction):
+ *  1. DSCR — `dscr_*` markers OR Home-Scout investor signals.
+ *  2. VA family (PFP veteran flag / eligible-programs OR `scout_va_eligible`):
  *       - refinance phase → `VA_IRRRL` (the streamline refi).
  *       - purchase / unknown phase → `VA_PURCHASE`.
- *  3. FHA family:
+ *  3. NON_QM — Home-Scout self-employed / no-tax-return signals (a self-employed
+ *     INVESTOR is already DSCR above; this is the owner-occupant alt-doc path).
+ *  4. CONSTRUCTION — Home-Scout building / renovating.
+ *  5. FHA family:
  *       - cash-out refi → `FHA_CASHOUT`.
  *       - other refinance → `FHA_STREAMLINE`.
- *       - purchase / unknown phase → `FHA_PURCHASE`.
- *  4. Conventional family → `CONVENTIONAL`.
- *  5. Otherwise → `null` (no program inferable — no hook fires).
+ *       - purchase / unknown phase, OR a Home-Scout first-time / low-down lead
+ *         → `FHA_PURCHASE`.
+ *  6. Conventional family → `CONVENTIONAL`.
+ *  7. Otherwise → `null` (no program inferable — no hook fires).
  *
  * VA precedes FHA precedes Conventional because the most-specific eligibility
  * (veteran entitlement) carries the strongest program-specific hook, and a lead
  * eligible for multiple programs should be spoken to in the highest-value lane.
+ * DSCR precedes NON_QM because a self-employed investor is best served by the
+ * property-cash-flow (DSCR) angle, not the personal alt-doc (bank-statement) one.
  *
  * Never throws; missing / null / wrong-type inputs degrade to `null`.
  */
@@ -519,30 +745,44 @@ export function inferLoanProgram(input: LoanProgramInferenceInput): LoanProgram 
   const meta = input.metadata || {};
   const loanType = input.loanType ?? null;
 
-  // 1. DSCR / investor.
-  if (isDscrInvestorSignal(meta)) {
+  // 1. DSCR / investor — PFP DSCR markers OR Home-Scout investor signals.
+  if (isDscrInvestorSignal(meta) || isScoutInvestorSignal(meta)) {
     return 'DSCR';
   }
 
   const refi = refinancePhase(meta);
   const isVet = isVeteranFlag(meta.pfp_is_veteran);
-  const hasVa = isVet || hasProgramFamily('VA', meta, loanType);
+  const hasVa = isVet || hasProgramFamily('VA', meta, loanType) || isScoutVaEligible(meta);
 
-  // 2. VA — veteran entitlement OR VA in the eligible-programs list.
+  // 2. VA — veteran entitlement OR VA in the eligible-programs list OR scout flag.
   if (hasVa) {
     // IRRRL is the VA streamline refi; only meaningful on a refinance-phase lead.
     if (refi === true) return 'VA_IRRRL';
     return 'VA_PURCHASE';
   }
 
-  // 3. FHA.
+  // 3. NON_QM — Home-Scout self-employed / no-tax-return owner-occupant path.
+  //    (The investor variant already returned DSCR above.)
+  if (isScoutNonQm(meta)) {
+    return 'NON_QM';
+  }
+
+  // 4. CONSTRUCTION — Home-Scout building / renovating.
+  if (isScoutConstruction(meta)) {
+    return 'CONSTRUCTION';
+  }
+
+  // 5. FHA — PFP family OR a Home-Scout first-time / low-down buyer.
   if (hasProgramFamily('FHA', meta, loanType)) {
     if (isCashOutRefi(meta)) return 'FHA_CASHOUT';
     if (refi === true) return 'FHA_STREAMLINE';
     return 'FHA_PURCHASE';
   }
+  if (isScoutFhaLeaning(meta)) {
+    return 'FHA_PURCHASE';
+  }
 
-  // 4. Conventional.
+  // 6. Conventional.
   if (hasProgramFamily('CONVENTIONAL', meta, loanType)) {
     return 'CONVENTIONAL';
   }

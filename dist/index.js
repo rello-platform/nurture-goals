@@ -530,6 +530,10 @@ Object.defineProperty(exports, "inferNurtureGoal", { enumerable: true, get: func
 //   infer.ts::mapPfpLoanPurposeToGoal). Steers framework emphasis + the
 //   composition prompt's program-specific hooks (VA IRRRL / FHA Streamline /
 //   DSCR etc.). `null` = no program could be inferred (no behavior change).
+//   06152026 HS-SCOUT-FIELDS STEP 2 adds NON_QM + CONSTRUCTION program
+//   dimensions and reads Home-Scout `scout_*` contact-form fields as the
+//   lowest-precedence inference source (hh_* > pfp_*/dscr_* > scout_*). The
+//   prohibited-basis COMPLIANCE-HOLD scout key (scout_age_62_plus) is NEVER read.
 // =============================================================================
 var infer_2 = require("./infer");
 Object.defineProperty(exports, "LOAN_PROGRAMS", { enumerable: true, get: function () { return infer_2.LOAN_PROGRAMS; } });
