@@ -525,7 +525,8 @@ export function getTopicExclusionKey(goal: NurtureGoal): string | null {
 }
 
 // =============================================================================
-// Inference — v0.3.0 (signal-aware + lead-state goal inference)
+// Inference — signal-aware + lead-state goal inference.
+//   v0.5.0 adds pfp_loan_purpose as a SECONDARY source (hh_intent_type wins).
 // =============================================================================
 
 export { inferNurtureGoal, type NurtureGoalInferenceInput } from './infer';

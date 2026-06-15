@@ -48,7 +48,9 @@ export interface NurtureGoalInferenceInput {
         /**
          * Lead.customFields / metadata blob. Reads `hh_intent_type`,
          * `hh_temperature`, `closedAt`, `hh_rate_drop_signal`, `life_event_detected`,
-         * `hh_lien1_rate`. Tolerates missing fields.
+         * `hh_lien1_rate`, and — as a SECONDARY source when `hh_intent_type` is
+         * absent — `pfp_loan_purpose` (PathfinderPro loan-program vocabulary).
+         * Tolerates missing fields.
          */
         metadata: Record<string, unknown>;
         /** Discriminator — REALTOR_PROSPECT short-circuit lives in Milo wrapper. */

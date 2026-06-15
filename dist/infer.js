@@ -89,6 +89,26 @@ function inferFromLeadState(lead, engagement) {
     if (hhIntentType === 'BUY') {
         return 'HOME_PURCHASE';
     }
+    // -- PathfinderPro loan-program routing (SECONDARY source) --
+    // `hh_intent_type` (above) WINS when present. Only when HH stamped no
+    // intent do we fall back to PFP's `pfp_loan_purpose` (synced by
+    // PathfinderPro's custom-field-builder.ts `["pfp_loan_purpose","loanPurpose"]`).
+    // Without this, every PFP lead (refi, cash-out, etc.) that HH did not also
+    // enrich collapses to the default HOME_PURCHASE below — a generic-buyer
+    // mis-framing. Provenance: 06142026-NURTURE-AUDIT P1 (§2.3, §5).
+    //
+    // `mapPfpLoanPurposeToGoal` returns a NurtureGoal or null; null means the
+    // value was empty/unrecognized → fall through to the existing cold/post-sale/
+    // default cascade (NO override of HH-derived behavior, NO new fail mode).
+    // NOTE (audit P1 / DISCOVERED-NURTURE-PFP-DSCR-INVESTOR-GOAL-061426):
+    // DSCR / investor leads are intentionally LEFT at HOME_PURCHASE here — a
+    // dedicated INVESTOR NurtureGoal is P3 scope (a new enum member is out of
+    // scope for this fix). DSCR also stamps `dscr_loan_purpose`, not
+    // `pfp_loan_purpose`, so it does not even reach this branch today.
+    const pfpGoal = mapPfpLoanPurposeToGoal(meta.pfp_loan_purpose);
+    if (pfpGoal !== null) {
+        return pfpGoal;
+    }
     // Cold HH lead with no engagement → brand awareness (engagement-conditional;
     // callers without engagement context fall through to post-sale / default).
     if (hhTemperature === 'COLD' && engagement && isLowEngagement(engagement)) {
@@ -115,6 +135,73 @@ function inferFromLeadState(lead, engagement) {
     }
     // Default
     return 'HOME_PURCHASE';
+}
+/**
+ * Map a PathfinderPro `pfp_loan_purpose` value to a NurtureGoal, mirroring the
+ * structure of the `hh_intent_type` table in `inferFromLeadState`.
+ *
+ * SECONDARY source: `hh_intent_type` takes precedence at the call site — this
+ * runs ONLY when HH stamped no intent.
+ *
+ * Maps to EXISTING NurtureGoal enum members only (no new members — INVESTOR is
+ * P3 scope, see DISCOVERED-NURTURE-PFP-DSCR-INVESTOR-GOAL-061426):
+ *   purchase            → HOME_PURCHASE
+ *   refinance / rate-term refi → REFINANCE
+ *   cash-out refi       → EQUITY_ACCESS   (audit P1 §5 line 123)
+ *   reverse / HECM      → REVERSE_MORTGAGE
+ *   DSCR / investor     → null (caller leaves HOME_PURCHASE; P3)
+ *
+ * Accepts BOTH the canonical PFP agency-intake enum form
+ * (`PURCHASE` / `RATE_TERM_REFI` / `CASH_OUT_REFI`, written by
+ * custom-field-builder.ts) AND the lowercase semantic forms used elsewhere in
+ * the PFP codebase (`purchase` / `refinance` / `cash_out_refinance` / `reverse`)
+ * so a future producer change can't silently regress this mapping.
+ *
+ * Production-safe: tolerates `null`, `undefined`, non-string (returns null),
+ * empty/whitespace-only string (returns null), and is case/separator-insensitive
+ * (normalizes `-`, ` `, and `_` to a single canonical token).
+ *
+ * Returns `NurtureGoal` for a recognized purpose, or `null` for empty / wrong-type
+ * / unrecognized / DSCR-investor — callers fall through to the existing cascade.
+ */
+function mapPfpLoanPurposeToGoal(raw) {
+    if (typeof raw !== 'string')
+        return null;
+    // Collapse case + any of `-`, ` `, `_` runs to a single underscore so
+    // `RATE_TERM_REFI`, `rate-term refi`, and `rate term refi` all normalize alike.
+    const norm = raw.trim().toLowerCase().replace(/[\s_-]+/g, '_');
+    if (norm === '')
+        return null;
+    switch (norm) {
+        case 'purchase':
+            return 'HOME_PURCHASE';
+        // Rate/term refinance and plain refinance → REFINANCE.
+        case 'refinance':
+        case 'refi':
+        case 'rate_term_refi':
+        case 'rate_term_refinance':
+        case 'rate_term':
+            return 'REFINANCE';
+        // Cash-out refinance → EQUITY_ACCESS (equity-tapping framing, per audit P1).
+        case 'cash_out_refi':
+        case 'cash_out_refinance':
+        case 'cash_out':
+        case 'cashout':
+            return 'EQUITY_ACCESS';
+        // Reverse mortgage / HECM → REVERSE_MORTGAGE. (HECM normally arrives as
+        // hh_intent_type=REVERSE_MORTGAGE; this covers a pfp_loan_purpose form too.)
+        case 'reverse':
+        case 'reverse_mortgage':
+        case 'hecm':
+            return 'REVERSE_MORTGAGE';
+        // DSCR / investor → P3 (no INVESTOR enum yet). Leave HOME_PURCHASE.
+        case 'dscr':
+        case 'investor':
+        case 'investment':
+            return null;
+        default:
+            return null;
+    }
 }
 function isLowEngagement(engagement) {
     const messages = engagement.recentMessages || [];

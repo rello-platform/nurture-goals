@@ -302,3 +302,105 @@ describe('inferNurtureGoal — priority: intent type fires before stage routing'
     assert.equal(got, 'REFINANCE');
   });
 });
+
+describe('inferNurtureGoal — PFP loan-program routing (pfp_loan_purpose SECONDARY source; 06142026-NURTURE-AUDIT P1)', () => {
+  // THE P1 GAP: PFP leads carry their loan program in pfp_loan_purpose
+  // (stamped by PathfinderPro custom-field-builder.ts) but goal inference read
+  // ONLY hh_intent_type, so every PFP lead collapsed to default HOME_PURCHASE
+  // unless HH separately stamped hh_intent_type. v0.5.0 reads pfp_loan_purpose
+  // as a SECONDARY source.
+
+  // ── Canonical PFP agency-intake enum forms (what custom-field-builder writes) ──
+  it('pfp_loan_purpose PURCHASE → HOME_PURCHASE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'PURCHASE' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose RATE_TERM_REFI → REFINANCE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'RATE_TERM_REFI' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'REFINANCE');
+  });
+  it('pfp_loan_purpose CASH_OUT_REFI → EQUITY_ACCESS (equity-tapping framing)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'CASH_OUT_REFI' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'EQUITY_ACCESS');
+  });
+
+  // ── Lowercase / hyphen semantic forms (audit vocabulary + other PFP code paths) ──
+  it('pfp_loan_purpose "refinance" → REFINANCE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'refinance' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'REFINANCE');
+  });
+  it('pfp_loan_purpose "rate-term refi" (hyphen + space) → REFINANCE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'rate-term refi' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'REFINANCE');
+  });
+  it('pfp_loan_purpose "cash-out" → EQUITY_ACCESS', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'cash-out' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'EQUITY_ACCESS');
+  });
+  it('pfp_loan_purpose "reverse" / "HECM" → REVERSE_MORTGAGE', () => {
+    assert.equal(inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'reverse' }, entityType: 'LEAD' } })), 'REVERSE_MORTGAGE');
+    assert.equal(inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'HECM' }, entityType: 'LEAD' } })), 'REVERSE_MORTGAGE');
+  });
+
+  // ── DSCR / investor — P3 (no INVESTOR enum yet) → leave HOME_PURCHASE ──
+  it('pfp_loan_purpose "DSCR" → HOME_PURCHASE (INVESTOR goal is P3; DISCOVERED filed)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'DSCR' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose "investor" → HOME_PURCHASE (P3)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'investor' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+
+  // ── PRECEDENCE: hh_intent_type WINS over pfp_loan_purpose ──
+  it('hh_intent_type=BUY + pfp_loan_purpose=RATE_TERM_REFI → HOME_PURCHASE (HH wins)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'BUY', pfp_loan_purpose: 'RATE_TERM_REFI' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('hh_intent_type=REFI + pfp_loan_purpose=PURCHASE → REFINANCE (HH wins)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'REFI', pfp_loan_purpose: 'PURCHASE' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'REFINANCE');
+  });
+  it('hh_intent_type=SELL + pfp_loan_purpose=CASH_OUT_REFI → HOME_SALE (HH wins; PFP not reached)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'SELL', pfp_loan_purpose: 'CASH_OUT_REFI' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_SALE');
+  });
+  it('hh_intent_type=UNKNOWN (no HH match) + pfp_loan_purpose=refinance → REFINANCE (PFP fallback fires)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'UNKNOWN', pfp_loan_purpose: 'refinance' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'REFINANCE');
+  });
+
+  // ── PFP does NOT override post-sale stage when no purpose maps; and DOES
+  //    take precedence over stage routing when it maps (mirrors hh_intent_type) ──
+  it('CLOSED_WON + pfp_loan_purpose=RATE_TERM_REFI → REFINANCE (program intent fires before stage routing)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: 'CLOSED_WON', metadata: { pfp_loan_purpose: 'RATE_TERM_REFI' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'REFINANCE');
+  });
+
+  // ── Null / empty / wrong-type safety (CLAUDE.md production checklist) ──
+  it('pfp_loan_purpose null → falls through to default HOME_PURCHASE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: null }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose "" (empty) → falls through to default HOME_PURCHASE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: '' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose whitespace-only → falls through to default HOME_PURCHASE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: '   ' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose non-string (number) → falls through to default HOME_PURCHASE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 42 }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose unrecognized garbage → falls through to default HOME_PURCHASE', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'xyzzy' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('pfp_loan_purpose CASH_OUT_REFI but post-sale + reactivation signal — program wins (REACTIVATION not reached)', () => {
+    // pfp program intent fires before stage/reactivation routing (parity with hh_intent_type ordering)
+    const got = inferNurtureGoal(baseInput({ lead: { stage: 'PAST_CLIENT', metadata: { pfp_loan_purpose: 'CASH_OUT_REFI', hh_rate_drop_signal: true }, entityType: 'LEAD' } }));
+    assert.equal(got, 'EQUITY_ACCESS');
+  });
+});
