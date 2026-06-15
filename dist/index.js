@@ -484,7 +484,8 @@ function getTopicExclusionKey(goal) {
     return exports.TOPIC_EXCLUSION_KEYS_BY_GOAL[goal] ?? null;
 }
 // =============================================================================
-// Inference — v0.3.0 (signal-aware + lead-state goal inference)
+// Inference — signal-aware + lead-state goal inference.
+//   v0.5.0 adds pfp_loan_purpose as a SECONDARY source (hh_intent_type wins).
 // =============================================================================
 var infer_1 = require("./infer");
 Object.defineProperty(exports, "inferNurtureGoal", { enumerable: true, get: function () { return infer_1.inferNurtureGoal; } });
