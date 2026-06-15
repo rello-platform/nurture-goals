@@ -55,8 +55,11 @@ export interface NurtureGoalInferenceInput {
      * Lead.customFields / metadata blob. Reads `hh_intent_type`,
      * `hh_temperature`, `closedAt`, `hh_rate_drop_signal`, `life_event_detected`,
      * `hh_lien1_rate`, and — as a SECONDARY source when `hh_intent_type` is
-     * absent — `pfp_loan_purpose` (PathfinderPro loan-program vocabulary).
-     * Tolerates missing fields.
+     * absent — `pfp_loan_purpose` (PathfinderPro agency-intake vocabulary) and
+     * `dscr_intent_type` / `dscr_loan_purpose` (PathfinderPro DSCR-advisor
+     * markers → INVESTOR goal, 06142026-NURTURE-AUDIT P3). The loan-program
+     * dimension (`inferLoanProgram`) additionally reads `pfp_is_veteran` and
+     * `pfp_eligible_programs`. Tolerates missing fields.
      */
     metadata: Record<string, unknown>;
     /** Discriminator — REALTOR_PROSPECT short-circuit lives in Milo wrapper. */
@@ -141,6 +144,13 @@ function inferFromLeadState(
   if (hhIntentType === 'BUY') {
     return 'HOME_PURCHASE';
   }
+  // INVEST = HH's investor/non-owner-occupied intent (scoring-service.ts
+  // detectIntentType + the NA-087 investor short-circuit). Routes to the
+  // dedicated INVESTOR goal (06142026-NURTURE-AUDIT P3) so investor-specific
+  // framing fires instead of the generic-buyer HOME_PURCHASE default.
+  if (hhIntentType === 'INVEST' || hhIntentType === 'INVESTOR') {
+    return 'INVESTOR';
+  }
 
   // -- PathfinderPro loan-program routing (SECONDARY source) --
   // `hh_intent_type` (above) WINS when present. Only when HH stamped no
@@ -153,14 +163,22 @@ function inferFromLeadState(
   // `mapPfpLoanPurposeToGoal` returns a NurtureGoal or null; null means the
   // value was empty/unrecognized → fall through to the existing cold/post-sale/
   // default cascade (NO override of HH-derived behavior, NO new fail mode).
-  // NOTE (audit P1 / DISCOVERED-NURTURE-PFP-DSCR-INVESTOR-GOAL-061426):
-  // DSCR / investor leads are intentionally LEFT at HOME_PURCHASE here — a
-  // dedicated INVESTOR NurtureGoal is P3 scope (a new enum member is out of
-  // scope for this fix). DSCR also stamps `dscr_loan_purpose`, not
-  // `pfp_loan_purpose`, so it does not even reach this branch today.
+  // P3 (06142026-NURTURE-AUDIT, DISCOVERED-NURTURE-PFP-DSCR-INVESTOR-GOAL-061426):
+  // DSCR / investor leads now route to the dedicated INVESTOR goal (was
+  // HOME_PURCHASE in v0.5.0).
   const pfpGoal = mapPfpLoanPurposeToGoal(meta.pfp_loan_purpose);
   if (pfpGoal !== null) {
     return pfpGoal;
+  }
+
+  // -- DSCR advisor routing (SECONDARY source; 06142026-NURTURE-AUDIT P3) --
+  // PathfinderPro's DSCR advisor (save-lead/route.ts) stamps `dscr_loan_purpose`
+  // and `dscr_intent_type='DSCR_INVESTMENT'`, NOT `pfp_loan_purpose`. Read both
+  // so DSCR leads reach the INVESTOR goal even though they never populate the
+  // PFP agency-intake field above. `hh_intent_type` still wins (handled first);
+  // this fires only when HH stamped no intent and PFP stamped no agency purpose.
+  if (isDscrInvestorSignal(meta)) {
+    return 'INVESTOR';
   }
 
   // Cold HH lead with no engagement → brand awareness (engagement-conditional;
@@ -208,7 +226,7 @@ function inferFromLeadState(
  *   refinance / rate-term refi → REFINANCE
  *   cash-out refi       → EQUITY_ACCESS   (audit P1 §5 line 123)
  *   reverse / HECM      → REVERSE_MORTGAGE
- *   DSCR / investor     → null (caller leaves HOME_PURCHASE; P3)
+ *   DSCR / investor     → INVESTOR        (06142026-NURTURE-AUDIT P3)
  *
  * Accepts BOTH the canonical PFP agency-intake enum form
  * (`PURCHASE` / `RATE_TERM_REFI` / `CASH_OUT_REFI`, written by
@@ -256,15 +274,50 @@ function mapPfpLoanPurposeToGoal(raw: unknown): NurtureGoal | null {
     case 'hecm':
       return 'REVERSE_MORTGAGE';
 
-    // DSCR / investor → P3 (no INVESTOR enum yet). Leave HOME_PURCHASE.
+    // DSCR / investor → INVESTOR (06142026-NURTURE-AUDIT P3). Was `null`
+    // (fall-through to HOME_PURCHASE) in v0.5.0; the INVESTOR goal now exists.
     case 'dscr':
     case 'investor':
     case 'investment':
-      return null;
+      return 'INVESTOR';
 
     default:
       return null;
   }
+}
+
+/**
+ * Detect a DSCR / investor lead from the PathfinderPro DSCR-advisor custom
+ * fields (06142026-NURTURE-AUDIT P3). The DSCR advisor stamps
+ * `dscr_intent_type='DSCR_INVESTMENT'` and `dscr_loan_purpose` (free-form from
+ * the borrower's selected purpose), NOT `pfp_loan_purpose` — so DSCR leads
+ * never reach `mapPfpLoanPurposeToGoal`. This is the dedicated detector.
+ *
+ * Production-safe: tolerates missing / null / non-string fields (returns false).
+ * Case-insensitive; substring-tolerant on `dscr_loan_purpose` so values like
+ * `"DSCR investment"` / `"Investor"` still match.
+ */
+function isDscrInvestorSignal(meta: Record<string, unknown>): boolean {
+  // Canonical marker the DSCR advisor always stamps.
+  const intentType = meta.dscr_intent_type;
+  if (typeof intentType === 'string' && intentType.trim().length > 0) {
+    // Any non-empty dscr_intent_type means the DSCR advisor produced this lead.
+    return true;
+  }
+  // Secondary: the borrower's free-form DSCR loan purpose.
+  const purpose = meta.dscr_loan_purpose;
+  if (typeof purpose === 'string') {
+    const norm = purpose.trim().toLowerCase();
+    if (
+      norm.includes('dscr') ||
+      norm.includes('investor') ||
+      norm.includes('investment') ||
+      norm.includes('rental')
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isLowEngagement(engagement: NonNullable<NurtureGoalInferenceInput['engagement']>): boolean {
@@ -313,4 +366,222 @@ export function inferNurtureGoal(input: NurtureGoalInferenceInput): NurtureGoal 
     return null;
   }
   return inferFromLeadState(input.lead, input.engagement);
+}
+
+// =============================================================================
+// LoanProgram — SECONDARY messaging dimension (06142026-NURTURE-AUDIT P3).
+// =============================================================================
+
+/**
+ * The loan-program dimension. Rides ALONGSIDE the NurtureGoal as secondary
+ * metadata — it does NOT change which goal is selected (the one exception is
+ * DSCR/investor, which routes the GOAL to INVESTOR via `inferFromLeadState`;
+ * here it ALSO surfaces as `DSCR` so the prompt can speak to DSCR mechanics).
+ *
+ * Steers framework emphasis + the composition prompt's program-specific hooks:
+ *   - VA_IRRRL / FHA_STREAMLINE → the streamline-refi hooks (limited docs,
+ *     no/low new appraisal, faster close) Kelly specifically flagged.
+ *   - DSCR → "qualify on the property's cash flow, not personal income".
+ *   - VA_PURCHASE → $0-down eligibility (entitlement-conditional).
+ *   - FHA_PURCHASE → low-down / flexible-credit.
+ *
+ * `null` means no program could be inferred → no program-specific hook fires
+ * (the message stays purely goal-driven, byte-identical to pre-P3 behavior).
+ */
+export const LOAN_PROGRAMS = [
+  'VA_PURCHASE',
+  'VA_IRRRL',
+  'FHA_PURCHASE',
+  'FHA_STREAMLINE',
+  'FHA_CASHOUT',
+  'CONVENTIONAL',
+  'DSCR',
+] as const;
+
+export type LoanProgram = (typeof LOAN_PROGRAMS)[number];
+
+const LOAN_PROGRAM_SET: ReadonlySet<LoanProgram> = new Set<LoanProgram>(LOAN_PROGRAMS);
+
+/** Type guard: is this value a canonical LoanProgram? */
+export function isLoanProgram(value: unknown): value is LoanProgram {
+  return typeof value === 'string' && LOAN_PROGRAM_SET.has(value as LoanProgram);
+}
+
+/**
+ * Input to `inferLoanProgram`. A thin lead-shape — only the fields the
+ * inference reads. All optional / null-tolerant.
+ */
+export interface LoanProgramInferenceInput {
+  /**
+   * Lead.customFields / metadata blob. Reads (all optional, all tolerant of
+   * missing / null / wrong-type):
+   *  - `pfp_is_veteran`        — PFP veteran flag (bool, 'true'/'yes', or 1).
+   *  - `pfp_eligible_programs` — PFP comma-joined program names
+   *                              (e.g. "Conventional, FHA, VA").
+   *  - `pfp_loan_purpose`      — PFP agency-intake purpose
+   *                              (PURCHASE / RATE_TERM_REFI / CASH_OUT_REFI).
+   *  - `dscr_intent_type` / `dscr_loan_purpose` — PFP DSCR-advisor markers.
+   *  - `hh_intent_type`        — HH intent (REFI / RATE_WATCH / BUY / INVEST …)
+   *                              used to decide purchase-vs-refinance phase when
+   *                              `pfp_loan_purpose` is absent.
+   */
+  metadata: Record<string, unknown>;
+  /**
+   * Transaction.loanType, when the caller has loaded it (Rello
+   * schema.prisma:1159). A coarse program family string
+   * (e.g. 'VA' / 'FHA' / 'CONVENTIONAL'). Used as a fallback program-family
+   * source when the PFP `pfp_eligible_programs` field is absent.
+   */
+  loanType?: string | null;
+}
+
+/** Truthy-string / boolean / numeric coercion for the veteran flag. */
+function isVeteranFlag(raw: unknown): boolean {
+  if (raw === true) return true;
+  if (typeof raw === 'number') return raw === 1;
+  if (typeof raw === 'string') {
+    const norm = raw.trim().toLowerCase();
+    return norm === 'true' || norm === 'yes' || norm === 'y' || norm === '1';
+  }
+  return false;
+}
+
+/**
+ * Is this a refinance-phase lead (vs. a purchase)? Reads `pfp_loan_purpose`
+ * first (the explicit signal), then `hh_intent_type`. Returns:
+ *  - `true`  — refinance phase (rate/term OR cash-out OR HH REFI/RATE_WATCH).
+ *  - `false` — purchase phase (explicit PURCHASE / HH BUY).
+ *  - `null`  — unknown (neither field disambiguates).
+ */
+function refinancePhase(meta: Record<string, unknown>): boolean | null {
+  const goal = mapPfpLoanPurposeToGoal(meta.pfp_loan_purpose);
+  if (goal === 'REFINANCE' || goal === 'EQUITY_ACCESS') return true;
+  if (goal === 'HOME_PURCHASE') return false;
+
+  const hh = ((meta.hh_intent_type as string) || '').toUpperCase();
+  if (hh === 'REFI' || hh === 'REFINANCE' || hh === 'RATE_WATCH') return true;
+  if (hh === 'BUY') return false;
+  return null;
+}
+
+/** Does this lead's cash-out refi signal fire (for FHA_CASHOUT)? */
+function isCashOutRefi(meta: Record<string, unknown>): boolean {
+  return mapPfpLoanPurposeToGoal(meta.pfp_loan_purpose) === 'EQUITY_ACCESS';
+}
+
+/**
+ * Does the lead's program-family data include a given family? Reads PFP's
+ * comma-joined `pfp_eligible_programs` first, then falls back to the coarse
+ * `Transaction.loanType`. Case / spacing tolerant.
+ */
+function hasProgramFamily(
+  family: 'VA' | 'FHA' | 'CONVENTIONAL',
+  meta: Record<string, unknown>,
+  loanType: string | null | undefined,
+): boolean {
+  const tokens: string[] = [];
+  const eligible = meta.pfp_eligible_programs;
+  if (typeof eligible === 'string') {
+    for (const t of eligible.split(',')) tokens.push(t.trim().toUpperCase());
+  }
+  if (typeof loanType === 'string' && loanType.trim()) {
+    tokens.push(loanType.trim().toUpperCase());
+  }
+  // Normalize family aliases: "CONVENTIONAL" only; "VA"/"FHA" exact-ish.
+  return tokens.some((t) => {
+    if (family === 'CONVENTIONAL') return t === 'CONVENTIONAL' || t === 'CONV';
+    return t === family || t.startsWith(family + ' ') || t.startsWith(family + '_');
+  });
+}
+
+/**
+ * Infer the loan-program dimension for a lead. Deterministic, null-safe.
+ *
+ * Resolution order (most-specific program first):
+ *  1. DSCR — `dscr_intent_type` / `dscr_loan_purpose` markers (investor).
+ *  2. VA family:
+ *       - refinance phase → `VA_IRRRL` (the streamline refi).
+ *       - purchase / unknown phase → `VA_PURCHASE`.
+ *  3. FHA family:
+ *       - cash-out refi → `FHA_CASHOUT`.
+ *       - other refinance → `FHA_STREAMLINE`.
+ *       - purchase / unknown phase → `FHA_PURCHASE`.
+ *  4. Conventional family → `CONVENTIONAL`.
+ *  5. Otherwise → `null` (no program inferable — no hook fires).
+ *
+ * VA precedes FHA precedes Conventional because the most-specific eligibility
+ * (veteran entitlement) carries the strongest program-specific hook, and a lead
+ * eligible for multiple programs should be spoken to in the highest-value lane.
+ *
+ * Never throws; missing / null / wrong-type inputs degrade to `null`.
+ */
+export function inferLoanProgram(input: LoanProgramInferenceInput): LoanProgram | null {
+  const meta = input.metadata || {};
+  const loanType = input.loanType ?? null;
+
+  // 1. DSCR / investor.
+  if (isDscrInvestorSignal(meta)) {
+    return 'DSCR';
+  }
+
+  const refi = refinancePhase(meta);
+  const isVet = isVeteranFlag(meta.pfp_is_veteran);
+  const hasVa = isVet || hasProgramFamily('VA', meta, loanType);
+
+  // 2. VA — veteran entitlement OR VA in the eligible-programs list.
+  if (hasVa) {
+    // IRRRL is the VA streamline refi; only meaningful on a refinance-phase lead.
+    if (refi === true) return 'VA_IRRRL';
+    return 'VA_PURCHASE';
+  }
+
+  // 3. FHA.
+  if (hasProgramFamily('FHA', meta, loanType)) {
+    if (isCashOutRefi(meta)) return 'FHA_CASHOUT';
+    if (refi === true) return 'FHA_STREAMLINE';
+    return 'FHA_PURCHASE';
+  }
+
+  // 4. Conventional.
+  if (hasProgramFamily('CONVENTIONAL', meta, loanType)) {
+    return 'CONVENTIONAL';
+  }
+
+  // 5. No program inferable.
+  return null;
+}
+
+// =============================================================================
+// inferNurtureContext — goal + loanProgram in one call (the P3 consumer surface)
+// =============================================================================
+
+/**
+ * The combined inference result: the primary NurtureGoal plus the secondary
+ * loan-program dimension. Milo's compose-time wrapper and Rello's connector
+ * call `inferNurtureContext` so they get both axes from one source of truth.
+ */
+export interface NurtureContext {
+  /** The primary goal (or `null` for a structurally non-goal-shift signal). */
+  goal: NurtureGoal | null;
+  /** The secondary loan-program dimension (or `null` if none inferable). */
+  loanProgram: LoanProgram | null;
+}
+
+/**
+ * Infer BOTH the NurtureGoal and the LoanProgram dimension for a lead.
+ *
+ * `goal` follows the exact semantics of `inferNurtureGoal` (including the
+ * non-goal-shift `null` gate). `loanProgram` is always computed from lead state
+ * (it has no signal gate — it is pure metadata about the lead), so a caller
+ * that gets `goal: null` may still get a non-null `loanProgram`; the caller
+ * decides whether to use it. For compose-time callers (`__milo_compose__`
+ * sentinel), `goal` is the resolved goal and `loanProgram` rides alongside.
+ *
+ * Never throws.
+ */
+export function inferNurtureContext(input: NurtureGoalInferenceInput): NurtureContext {
+  return {
+    goal: inferNurtureGoal(input),
+    loanProgram: inferLoanProgram({ metadata: input.lead.metadata || {} }),
+  };
 }

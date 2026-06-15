@@ -39,7 +39,7 @@
  *   intentionally omitted — they don't map to a consumer opt-out category.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.inferNurtureGoal = exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = exports.PRIMING_CATEGORIES_BY_GOAL = exports.UNIVERSAL_PRIMING_CATEGORIES = exports.PRIMING_CATEGORY_KEYS = exports.MAX_PRIMING_TEXT_LENGTH = exports.NURTURE_GOAL_METADATA = exports.NURTURE_GOALS = void 0;
+exports.inferNurtureContext = exports.inferLoanProgram = exports.isLoanProgram = exports.LOAN_PROGRAMS = exports.inferNurtureGoal = exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = exports.PRIMING_CATEGORIES_BY_GOAL = exports.UNIVERSAL_PRIMING_CATEGORIES = exports.PRIMING_CATEGORY_KEYS = exports.MAX_PRIMING_TEXT_LENGTH = exports.NURTURE_GOAL_METADATA = exports.NURTURE_GOALS = void 0;
 exports.isNurtureGoal = isNurtureGoal;
 exports.isPrimingCategoryKey = isPrimingCategoryKey;
 exports.getPrimingCategoriesForGoal = getPrimingCategoriesForGoal;
@@ -67,6 +67,15 @@ exports.NURTURE_GOALS = [
     "HOME_SALE",
     "LISTING_CONVERSION",
     "BRAND_AWARENESS",
+    // 2026-06-15 — INVESTOR added (06142026-NURTURE-AUDIT P3, HYBRID approach).
+    // DSCR / non-owner-occupied / investment-property borrowers. Distinct from
+    // HOME_PURCHASE: they qualify on the property's rental cash flow (DSCR), not
+    // personal W-2 income, and the relationship cadence is slower / portfolio-
+    // minded rather than the urgency arc of an owner-occupant buyer. This is the
+    // ONE net-new goal P3 adds; VA IRRRL / FHA Streamline are NOT goals — they
+    // are `loanProgram` dimension values that ride alongside the REFINANCE goal
+    // (see LoanProgram below + audit §6 P3 option (b)).
+    "INVESTOR",
 ];
 const NURTURE_GOAL_SET = new Set(exports.NURTURE_GOALS);
 /** Type guard: is this value a canonical NurtureGoal? */
@@ -90,6 +99,12 @@ exports.NURTURE_GOAL_METADATA = {
         displayName: "Purchase / Buyer Opportunity",
         description: "Leads actively in-market to buy — first-time, move-up, relocation, investor, luxury.",
         sortOrder: 10,
+    },
+    INVESTOR: {
+        key: "INVESTOR",
+        displayName: "Investor / DSCR",
+        description: "Investment-property buyers and DSCR borrowers — qualify on the property's rental cash flow rather than personal income. Portfolio-minded, slow-to-medium relationship cadence; value the math and the financing mechanics over lifestyle framing.",
+        sortOrder: 15,
     },
     REFINANCE: {
         key: "REFINANCE",
@@ -176,6 +191,9 @@ exports.PRIMING_CATEGORY_KEYS = [
     // HOME_PURCHASE
     "buyer_segment",
     "program_angle",
+    // INVESTOR
+    "investment_thesis",
+    "financing_angle",
     // REFINANCE
     "rate_argument",
     "prior_rate_assumption",
@@ -270,6 +288,21 @@ exports.PRIMING_CATEGORIES_BY_GOAL = {
             key: "program_angle",
             label: "Program angle",
             guidance: "DPA, FHA, VA, conventional focus if any.",
+            required: false,
+        },
+    ],
+    INVESTOR: [
+        ...exports.UNIVERSAL_PRIMING_CATEGORIES,
+        {
+            key: "investment_thesis",
+            label: "Investment thesis",
+            guidance: "The deal logic — cash-flow target, cap rate, BRRRR / buy-and-hold / STR, portfolio stage.",
+            required: true,
+        },
+        {
+            key: "financing_angle",
+            label: "Financing angle",
+            guidance: "DSCR vs. conventional investor financing, LTV expectations, entity (LLC) vs. personal — if known.",
             required: false,
         },
     ],
@@ -467,6 +500,7 @@ function isValidPrimingCategoryForGoal(goal, categoryKey) {
  */
 exports.TOPIC_EXCLUSION_KEYS_BY_GOAL = {
     HOME_PURCHASE: "purchase",
+    INVESTOR: "investor",
     REFINANCE: "refinance",
     REVERSE_MORTGAGE: "reverse_mortgage",
     EQUITY_ACCESS: "equity_access",
@@ -489,3 +523,16 @@ function getTopicExclusionKey(goal) {
 // =============================================================================
 var infer_1 = require("./infer");
 Object.defineProperty(exports, "inferNurtureGoal", { enumerable: true, get: function () { return infer_1.inferNurtureGoal; } });
+// =============================================================================
+// LoanProgram — SECONDARY messaging dimension (06142026-NURTURE-AUDIT P3).
+//   Rides ALONGSIDE the goal; does NOT change goal selection (the sole
+//   exception is DSCR/investor, which routes the GOAL to INVESTOR — see
+//   infer.ts::mapPfpLoanPurposeToGoal). Steers framework emphasis + the
+//   composition prompt's program-specific hooks (VA IRRRL / FHA Streamline /
+//   DSCR etc.). `null` = no program could be inferred (no behavior change).
+// =============================================================================
+var infer_2 = require("./infer");
+Object.defineProperty(exports, "LOAN_PROGRAMS", { enumerable: true, get: function () { return infer_2.LOAN_PROGRAMS; } });
+Object.defineProperty(exports, "isLoanProgram", { enumerable: true, get: function () { return infer_2.isLoanProgram; } });
+Object.defineProperty(exports, "inferLoanProgram", { enumerable: true, get: function () { return infer_2.inferLoanProgram; } });
+Object.defineProperty(exports, "inferNurtureContext", { enumerable: true, get: function () { return infer_2.inferNurtureContext; } });
