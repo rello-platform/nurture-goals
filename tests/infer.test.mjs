@@ -15,7 +15,17 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { inferNurtureGoal } from '../dist/index.js';
+import {
+  inferNurtureGoal,
+  inferLoanProgram,
+  inferNurtureContext,
+  isLoanProgram,
+  LOAN_PROGRAMS,
+  NURTURE_GOALS,
+  NURTURE_GOAL_METADATA,
+  PRIMING_CATEGORIES_BY_GOAL,
+  getRequiredPrimingCategoryKeys,
+} from '../dist/index.js';
 
 function baseInput(overrides = {}) {
   return {
@@ -342,14 +352,14 @@ describe('inferNurtureGoal — PFP loan-program routing (pfp_loan_purpose SECOND
     assert.equal(inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'HECM' }, entityType: 'LEAD' } })), 'REVERSE_MORTGAGE');
   });
 
-  // ── DSCR / investor — P3 (no INVESTOR enum yet) → leave HOME_PURCHASE ──
-  it('pfp_loan_purpose "DSCR" → HOME_PURCHASE (INVESTOR goal is P3; DISCOVERED filed)', () => {
+  // ── DSCR / investor — P3 (INVESTOR goal now exists) → INVESTOR ──
+  it('pfp_loan_purpose "DSCR" → INVESTOR (06142026-NURTURE-AUDIT P3)', () => {
     const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'DSCR' }, entityType: 'LEAD' } }));
-    assert.equal(got, 'HOME_PURCHASE');
+    assert.equal(got, 'INVESTOR');
   });
-  it('pfp_loan_purpose "investor" → HOME_PURCHASE (P3)', () => {
+  it('pfp_loan_purpose "investor" → INVESTOR (P3)', () => {
     const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { pfp_loan_purpose: 'investor' }, entityType: 'LEAD' } }));
-    assert.equal(got, 'HOME_PURCHASE');
+    assert.equal(got, 'INVESTOR');
   });
 
   // ── PRECEDENCE: hh_intent_type WINS over pfp_loan_purpose ──
@@ -402,5 +412,154 @@ describe('inferNurtureGoal — PFP loan-program routing (pfp_loan_purpose SECOND
     // pfp program intent fires before stage/reactivation routing (parity with hh_intent_type ordering)
     const got = inferNurtureGoal(baseInput({ lead: { stage: 'PAST_CLIENT', metadata: { pfp_loan_purpose: 'CASH_OUT_REFI', hh_rate_drop_signal: true }, entityType: 'LEAD' } }));
     assert.equal(got, 'EQUITY_ACCESS');
+  });
+});
+
+// =============================================================================
+// P3 — INVESTOR goal + loanProgram dimension (06142026-NURTURE-AUDIT P3)
+// =============================================================================
+
+describe('P3 — INVESTOR goal routing', () => {
+  it('hh_intent_type=INVEST → INVESTOR', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'INVEST' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'INVESTOR');
+  });
+  it('hh_intent_type=INVESTOR (alias) → INVESTOR', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'INVESTOR' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'INVESTOR');
+  });
+  it('dscr_intent_type=DSCR_INVESTMENT (DSCR advisor marker; no pfp_loan_purpose) → INVESTOR', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { dscr_intent_type: 'DSCR_INVESTMENT' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'INVESTOR');
+  });
+  it('dscr_loan_purpose contains "investment" → INVESTOR', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { dscr_loan_purpose: 'DSCR investment property' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'INVESTOR');
+  });
+  it('hh_intent_type wins over DSCR signal (HH BUY + dscr marker → HOME_PURCHASE)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'BUY', dscr_intent_type: 'DSCR_INVESTMENT' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+  it('DSCR program intent fires before post-sale stage routing (PAST_CLIENT + dscr → INVESTOR)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: 'PAST_CLIENT', metadata: { dscr_intent_type: 'DSCR_INVESTMENT' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'INVESTOR');
+  });
+  it('no DSCR/investor signal → unchanged (default HOME_PURCHASE)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { dscr_intent_type: '' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'HOME_PURCHASE');
+  });
+});
+
+describe('P3 — INVESTOR present in all total goal-keyed maps', () => {
+  it('NURTURE_GOALS includes INVESTOR', () => {
+    assert.ok(NURTURE_GOALS.includes('INVESTOR'));
+  });
+  it('NURTURE_GOAL_METADATA has an INVESTOR entry with a non-empty displayName + description', () => {
+    const m = NURTURE_GOAL_METADATA.INVESTOR;
+    assert.ok(m, 'INVESTOR metadata missing');
+    assert.equal(m.key, 'INVESTOR');
+    assert.ok(m.displayName.length > 0);
+    assert.ok(m.description.length > 0);
+  });
+  it('PRIMING_CATEGORIES_BY_GOAL has INVESTOR with a required investment_thesis category', () => {
+    const cats = PRIMING_CATEGORIES_BY_GOAL.INVESTOR;
+    assert.ok(Array.isArray(cats) && cats.length > 0);
+    const required = getRequiredPrimingCategoryKeys('INVESTOR');
+    assert.ok(required.includes('investment_thesis'));
+  });
+});
+
+describe('P3 — inferLoanProgram (the loanProgram dimension)', () => {
+  // ── VA ──
+  it('veteran + refinance phase → VA_IRRRL', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_is_veteran: true, pfp_loan_purpose: 'RATE_TERM_REFI' } }), 'VA_IRRRL');
+  });
+  it('veteran (string "yes") + HH RATE_WATCH → VA_IRRRL', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_is_veteran: 'yes', hh_intent_type: 'RATE_WATCH' } }), 'VA_IRRRL');
+  });
+  it('veteran + purchase phase → VA_PURCHASE', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_is_veteran: true, pfp_loan_purpose: 'PURCHASE' } }), 'VA_PURCHASE');
+  });
+  it('VA in pfp_eligible_programs + unknown phase → VA_PURCHASE (purchase-default)', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_eligible_programs: 'Conventional, FHA, VA' } }), 'VA_PURCHASE');
+  });
+  // ── FHA ──
+  it('FHA eligible + refinance phase → FHA_STREAMLINE', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_eligible_programs: 'FHA', pfp_loan_purpose: 'refinance' } }), 'FHA_STREAMLINE');
+  });
+  it('FHA eligible + cash-out refi → FHA_CASHOUT', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_eligible_programs: 'FHA', pfp_loan_purpose: 'CASH_OUT_REFI' } }), 'FHA_CASHOUT');
+  });
+  it('FHA eligible + purchase phase → FHA_PURCHASE', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_eligible_programs: 'FHA', pfp_loan_purpose: 'PURCHASE' } }), 'FHA_PURCHASE');
+  });
+  it('VA precedes FHA when both eligible + refi → VA_IRRRL', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_eligible_programs: 'FHA, VA', pfp_loan_purpose: 'refinance' } }), 'VA_IRRRL');
+  });
+  // ── Conventional / DSCR / loanType fallback ──
+  it('Conventional only → CONVENTIONAL', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_eligible_programs: 'Conventional' } }), 'CONVENTIONAL');
+  });
+  it('DSCR signal → DSCR (precedes everything)', () => {
+    assert.equal(inferLoanProgram({ metadata: { dscr_intent_type: 'DSCR_INVESTMENT', pfp_eligible_programs: 'Conventional' } }), 'DSCR');
+  });
+  it('Transaction.loanType fallback (no pfp fields) → program family', () => {
+    assert.equal(inferLoanProgram({ metadata: {}, loanType: 'VA' }), 'VA_PURCHASE');
+    assert.equal(inferLoanProgram({ metadata: { pfp_loan_purpose: 'refinance' }, loanType: 'FHA' }), 'FHA_STREAMLINE');
+  });
+  // ── null / garbage safety ──
+  it('empty metadata → null (no program, no hook)', () => {
+    assert.equal(inferLoanProgram({ metadata: {} }), null);
+  });
+  it('garbage program list → null', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_eligible_programs: 'xyzzy, frobnicate' } }), null);
+  });
+  it('non-string veteran/programs → null (never throws)', () => {
+    assert.equal(inferLoanProgram({ metadata: { pfp_is_veteran: 42, pfp_eligible_programs: { a: 1 } } }), null);
+  });
+  it('null metadata → null (never throws)', () => {
+    assert.equal(inferLoanProgram({ metadata: null }), null);
+  });
+  it('isLoanProgram type guard', () => {
+    assert.ok(isLoanProgram('VA_IRRRL'));
+    assert.ok(!isLoanProgram('NOPE'));
+    assert.ok(!isLoanProgram(null));
+    assert.equal(LOAN_PROGRAMS.length, 7);
+  });
+});
+
+describe('P3 — inferNurtureContext (goal + loanProgram in one call)', () => {
+  it('VA IRRRL refi vet → goal REFINANCE + loanProgram VA_IRRRL', () => {
+    const ctx = inferNurtureContext(baseInput({
+      signalType: '__milo_compose__',
+      lead: { stage: null, metadata: { pfp_is_veteran: true, pfp_loan_purpose: 'RATE_TERM_REFI' }, entityType: 'LEAD' },
+    }));
+    assert.deepEqual(ctx, { goal: 'REFINANCE', loanProgram: 'VA_IRRRL' });
+  });
+  it('FHA streamline lead → goal REFINANCE + loanProgram FHA_STREAMLINE', () => {
+    const ctx = inferNurtureContext(baseInput({
+      signalType: '__milo_compose__',
+      lead: { stage: null, metadata: { pfp_eligible_programs: 'FHA', pfp_loan_purpose: 'refinance' }, entityType: 'LEAD' },
+    }));
+    assert.deepEqual(ctx, { goal: 'REFINANCE', loanProgram: 'FHA_STREAMLINE' });
+  });
+  it('DSCR investor → goal INVESTOR + loanProgram DSCR', () => {
+    const ctx = inferNurtureContext(baseInput({
+      signalType: '__milo_compose__',
+      lead: { stage: null, metadata: { dscr_intent_type: 'DSCR_INVESTMENT' }, entityType: 'LEAD' },
+    }));
+    assert.deepEqual(ctx, { goal: 'INVESTOR', loanProgram: 'DSCR' });
+  });
+  it('plain lead → goal HOME_PURCHASE + loanProgram null (no hook, no behavior change)', () => {
+    const ctx = inferNurtureContext(baseInput({ signalType: '__milo_compose__' }));
+    assert.deepEqual(ctx, { goal: 'HOME_PURCHASE', loanProgram: null });
+  });
+  it('non-goal-shift signal → goal null but loanProgram still computed from lead state', () => {
+    const ctx = inferNurtureContext(baseInput({
+      signalType: 'newsletter_studio.email_complained',
+      lead: { stage: null, metadata: { pfp_eligible_programs: 'FHA', pfp_loan_purpose: 'PURCHASE' }, entityType: 'LEAD' },
+    }));
+    assert.equal(ctx.goal, null);
+    assert.equal(ctx.loanProgram, 'FHA_PURCHASE');
   });
 });

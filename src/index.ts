@@ -60,6 +60,15 @@ export const NURTURE_GOALS = [
   "HOME_SALE",
   "LISTING_CONVERSION",
   "BRAND_AWARENESS",
+  // 2026-06-15 — INVESTOR added (06142026-NURTURE-AUDIT P3, HYBRID approach).
+  // DSCR / non-owner-occupied / investment-property borrowers. Distinct from
+  // HOME_PURCHASE: they qualify on the property's rental cash flow (DSCR), not
+  // personal W-2 income, and the relationship cadence is slower / portfolio-
+  // minded rather than the urgency arc of an owner-occupant buyer. This is the
+  // ONE net-new goal P3 adds; VA IRRRL / FHA Streamline are NOT goals — they
+  // are `loanProgram` dimension values that ride alongside the REFINANCE goal
+  // (see LoanProgram below + audit §6 P3 option (b)).
+  "INVESTOR",
 ] as const;
 
 export type NurtureGoal = (typeof NURTURE_GOALS)[number];
@@ -99,6 +108,13 @@ export const NURTURE_GOAL_METADATA: Readonly<Record<NurtureGoal, NurtureGoalMeta
     displayName: "Purchase / Buyer Opportunity",
     description: "Leads actively in-market to buy — first-time, move-up, relocation, investor, luxury.",
     sortOrder: 10,
+  },
+  INVESTOR: {
+    key: "INVESTOR",
+    displayName: "Investor / DSCR",
+    description:
+      "Investment-property buyers and DSCR borrowers — qualify on the property's rental cash flow rather than personal income. Portfolio-minded, slow-to-medium relationship cadence; value the math and the financing mechanics over lifestyle framing.",
+    sortOrder: 15,
   },
   REFINANCE: {
     key: "REFINANCE",
@@ -188,6 +204,9 @@ export const PRIMING_CATEGORY_KEYS = [
   // HOME_PURCHASE
   "buyer_segment",
   "program_angle",
+  // INVESTOR
+  "investment_thesis",
+  "financing_angle",
   // REFINANCE
   "rate_argument",
   "prior_rate_assumption",
@@ -302,6 +321,23 @@ export const PRIMING_CATEGORIES_BY_GOAL: Readonly<Record<NurtureGoal, readonly P
       key: "program_angle",
       label: "Program angle",
       guidance: "DPA, FHA, VA, conventional focus if any.",
+      required: false,
+    },
+  ],
+  INVESTOR: [
+    ...UNIVERSAL_PRIMING_CATEGORIES,
+    {
+      key: "investment_thesis",
+      label: "Investment thesis",
+      guidance:
+        "The deal logic — cash-flow target, cap rate, BRRRR / buy-and-hold / STR, portfolio stage.",
+      required: true,
+    },
+    {
+      key: "financing_angle",
+      label: "Financing angle",
+      guidance:
+        "DSCR vs. conventional investor financing, LTV expectations, entity (LLC) vs. personal — if known.",
       required: false,
     },
   ],
@@ -506,6 +542,7 @@ export function isValidPrimingCategoryForGoal(
  */
 export const TOPIC_EXCLUSION_KEYS_BY_GOAL: Readonly<Partial<Record<NurtureGoal, string>>> = {
   HOME_PURCHASE: "purchase",
+  INVESTOR: "investor",
   REFINANCE: "refinance",
   REVERSE_MORTGAGE: "reverse_mortgage",
   EQUITY_ACCESS: "equity_access",
@@ -530,4 +567,23 @@ export function getTopicExclusionKey(goal: NurtureGoal): string | null {
 // =============================================================================
 
 export { inferNurtureGoal, type NurtureGoalInferenceInput } from './infer';
+
+// =============================================================================
+// LoanProgram — SECONDARY messaging dimension (06142026-NURTURE-AUDIT P3).
+//   Rides ALONGSIDE the goal; does NOT change goal selection (the sole
+//   exception is DSCR/investor, which routes the GOAL to INVESTOR — see
+//   infer.ts::mapPfpLoanPurposeToGoal). Steers framework emphasis + the
+//   composition prompt's program-specific hooks (VA IRRRL / FHA Streamline /
+//   DSCR etc.). `null` = no program could be inferred (no behavior change).
+// =============================================================================
+
+export {
+  LOAN_PROGRAMS,
+  type LoanProgram,
+  isLoanProgram,
+  inferLoanProgram,
+  type LoanProgramInferenceInput,
+  inferNurtureContext,
+  type NurtureContext,
+} from './infer';
 

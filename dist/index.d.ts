@@ -43,7 +43,7 @@
  * off these values). Add a new goal here ONLY when Milo has a goal-specific
  * rule path and framework mapping to receive it.
  */
-export declare const NURTURE_GOALS: readonly ["HOME_PURCHASE", "REFINANCE", "REVERSE_MORTGAGE", "EQUITY_ACCESS", "REACTIVATION", "RELATIONSHIP", "REFERRAL", "REALTOR_CULTIVATION", "HOME_SALE", "LISTING_CONVERSION", "BRAND_AWARENESS"];
+export declare const NURTURE_GOALS: readonly ["HOME_PURCHASE", "REFINANCE", "REVERSE_MORTGAGE", "EQUITY_ACCESS", "REACTIVATION", "RELATIONSHIP", "REFERRAL", "REALTOR_CULTIVATION", "HOME_SALE", "LISTING_CONVERSION", "BRAND_AWARENESS", "INVESTOR"];
 export type NurtureGoal = (typeof NURTURE_GOALS)[number];
 /** Type guard: is this value a canonical NurtureGoal? */
 export declare function isNurtureGoal(value: unknown): value is NurtureGoal;
@@ -75,7 +75,7 @@ export declare const MAX_PRIMING_TEXT_LENGTH = 280;
  * to the goals listed in PRIMING_CATEGORIES_BY_GOAL; the universal six
  * apply to every goal.
  */
-export declare const PRIMING_CATEGORY_KEYS: readonly ["thesis", "audience_note", "lean_into", "steer_clear", "frame", "cta", "buyer_segment", "program_angle", "rate_argument", "prior_rate_assumption", "break_even_note", "security_thesis", "family_note", "use_case", "rate_math_note", "prior_relationship", "reactivation_reason", "personal_anchor", "occasion", "referral_ask_style", "incentive_note", "value_position", "life_stage_note", "agent_fit", "qualifying_signal", "educational_topic", "proof_point"];
+export declare const PRIMING_CATEGORY_KEYS: readonly ["thesis", "audience_note", "lean_into", "steer_clear", "frame", "cta", "buyer_segment", "program_angle", "investment_thesis", "financing_angle", "rate_argument", "prior_rate_assumption", "break_even_note", "security_thesis", "family_note", "use_case", "rate_math_note", "prior_relationship", "reactivation_reason", "personal_anchor", "occasion", "referral_ask_style", "incentive_note", "value_position", "life_stage_note", "agent_fit", "qualifying_signal", "educational_topic", "proof_point"];
 export type PrimingCategoryKey = (typeof PRIMING_CATEGORY_KEYS)[number];
 /** Type guard: is this string a canonical priming category key? */
 export declare function isPrimingCategoryKey(value: unknown): value is PrimingCategoryKey;
@@ -141,4 +141,5 @@ export declare const TOPIC_EXCLUSION_KEYS_BY_GOAL: Readonly<Partial<Record<Nurtu
  */
 export declare function getTopicExclusionKey(goal: NurtureGoal): string | null;
 export { inferNurtureGoal, type NurtureGoalInferenceInput } from './infer';
+export { LOAN_PROGRAMS, type LoanProgram, isLoanProgram, inferLoanProgram, type LoanProgramInferenceInput, inferNurtureContext, type NurtureContext, } from './infer';
 //# sourceMappingURL=index.d.ts.map
