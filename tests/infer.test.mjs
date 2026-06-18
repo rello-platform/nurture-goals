@@ -503,6 +503,36 @@ describe('P3 — inferLoanProgram (the loanProgram dimension)', () => {
   it('DSCR signal → DSCR (precedes everything)', () => {
     assert.equal(inferLoanProgram({ metadata: { dscr_intent_type: 'DSCR_INVESTMENT', pfp_eligible_programs: 'Conventional' } }), 'DSCR');
   });
+  // ── HH-sourced investor cohort → DSCR (HH-INVESTOR-LOANPROGRAM-SOT, 06172026) ──
+  // The dominant production DSCR cohort: HH stamps hh_intent_type='INVESTOR' /
+  // hh_non_owner_occupied=true / hh_investor_subtype, NO dscr_*/scout_* markers.
+  // These previously returned null (no DSCR hook); now they resolve DSCR via the
+  // SHARED inference (mirrors Milo's retired resolveLoanProgram HH fallback).
+  it('HH hh_intent_type=INVESTOR → DSCR (was null pre-SOT)', () => {
+    assert.equal(inferLoanProgram({ metadata: { hh_intent_type: 'INVESTOR' } }), 'DSCR');
+  });
+  it('HH hh_intent_type=investor (lowercase) → DSCR (case-insensitive)', () => {
+    assert.equal(inferLoanProgram({ metadata: { hh_intent_type: 'investor' } }), 'DSCR');
+  });
+  it('HH hh_non_owner_occupied=true → DSCR (absentee-owner cohort, e.g. Big Star cmoesbhsl0027mq0fld9z2nnb)', () => {
+    assert.equal(inferLoanProgram({ metadata: { hh_non_owner_occupied: true } }), 'DSCR');
+  });
+  it('HH hh_investor_subtype string → DSCR', () => {
+    assert.equal(inferLoanProgram({ metadata: { hh_investor_subtype: 'out_of_state_owner' } }), 'DSCR');
+  });
+  it('HH-investor DSCR precedes VA (hh_non_owner_occupied + veteran flag → DSCR)', () => {
+    assert.equal(inferLoanProgram({ metadata: { hh_non_owner_occupied: true, pfp_is_veteran: true } }), 'DSCR');
+  });
+  it('HH-investor null-safety: non-string intent / empty subtype / false flag → not DSCR', () => {
+    assert.equal(inferLoanProgram({ metadata: { hh_intent_type: 42 } }), null);
+    assert.equal(inferLoanProgram({ metadata: { hh_investor_subtype: '   ' } }), null);
+    assert.equal(inferLoanProgram({ metadata: { hh_non_owner_occupied: false } }), null);
+    // hh_non_owner_occupied as the string 'true' must NOT trigger (strict === true).
+    assert.equal(inferLoanProgram({ metadata: { hh_non_owner_occupied: 'true' } }), null);
+  });
+  it('HH BUY (non-investor) → not DSCR (no false-positive on ordinary HH leads)', () => {
+    assert.equal(inferLoanProgram({ metadata: { hh_intent_type: 'BUY' } }), null);
+  });
   it('Transaction.loanType fallback (no pfp fields) → program family', () => {
     assert.equal(inferLoanProgram({ metadata: {}, loanType: 'VA' }), 'VA_PURCHASE');
     assert.equal(inferLoanProgram({ metadata: { pfp_loan_purpose: 'refinance' }, loanType: 'FHA' }), 'FHA_STREAMLINE');
@@ -554,6 +584,23 @@ describe('P3 — inferNurtureContext (goal + loanProgram in one call)', () => {
   it('plain lead → goal HOME_PURCHASE + loanProgram null (no hook, no behavior change)', () => {
     const ctx = inferNurtureContext(baseInput({ signalType: '__milo_compose__' }));
     assert.deepEqual(ctx, { goal: 'HOME_PURCHASE', loanProgram: null });
+  });
+  // HH-investor cohort (HH-INVESTOR-LOANPROGRAM-SOT): hh_intent_type=INVESTOR
+  // routes BOTH the INVESTOR goal AND the DSCR program; hh_non_owner_occupied
+  // alone leaves the goal at its stage/default but still surfaces DSCR.
+  it('HH hh_intent_type=INVESTOR → goal INVESTOR + loanProgram DSCR (shared inference)', () => {
+    const ctx = inferNurtureContext(baseInput({
+      signalType: '__milo_compose__',
+      lead: { stage: null, metadata: { hh_intent_type: 'INVESTOR' }, entityType: 'LEAD' },
+    }));
+    assert.deepEqual(ctx, { goal: 'INVESTOR', loanProgram: 'DSCR' });
+  });
+  it('HH hh_non_owner_occupied=true → goal HOME_PURCHASE + loanProgram DSCR (program rides alongside)', () => {
+    const ctx = inferNurtureContext(baseInput({
+      signalType: '__milo_compose__',
+      lead: { stage: null, metadata: { hh_non_owner_occupied: true }, entityType: 'LEAD' },
+    }));
+    assert.deepEqual(ctx, { goal: 'HOME_PURCHASE', loanProgram: 'DSCR' });
   });
   it('non-goal-shift signal → goal null but loanProgram still computed from lead state', () => {
     const ctx = inferNurtureContext(baseInput({

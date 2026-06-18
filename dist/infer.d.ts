@@ -129,7 +129,11 @@ export interface LoanProgramInferenceInput {
      *  - `dscr_intent_type` / `dscr_loan_purpose` — PFP DSCR-advisor markers.
      *  - `hh_intent_type`        — HH intent (REFI / RATE_WATCH / BUY / INVEST …)
      *                              used to decide purchase-vs-refinance phase when
-     *                              `pfp_loan_purpose` is absent.
+     *                              `pfp_loan_purpose` is absent; `INVESTOR` also
+     *                              routes the program to DSCR (HH-investor cohort).
+     *  - `hh_non_owner_occupied` / `hh_investor_subtype` — HH absentee-owner /
+     *                              investor-subtype markers → DSCR (the dominant
+     *                              production DSCR cohort; HH-INVESTOR-LOANPROGRAM-SOT).
      *  - `scout_*`               — Home-Scout contact-form answers (06152026
      *                              STEP 2; lowest-precedence source). Reads
      *                              scout_income_type, scout_files_tax_returns
@@ -158,7 +162,9 @@ export interface LoanProgramInferenceInput {
  * veteran-flag sources (agency intake) outrank self-reported Home-Scout
  * contact-form answers within the same family, but the scout `*` fields add
  * families PFP never carries (Non-QM, Construction):
- *  1. DSCR — `dscr_*` markers OR Home-Scout investor signals.
+ *  1. DSCR — `dscr_*` markers OR Home-Scout investor signals OR HH-sourced
+ *     investor signals (`hh_intent_type='INVESTOR'` / `hh_non_owner_occupied` /
+ *     `hh_investor_subtype` — the dominant production DSCR cohort).
  *  2. VA family (PFP veteran flag / eligible-programs OR `scout_va_eligible`):
  *       - refinance phase → `VA_IRRRL` (the streamline refi).
  *       - purchase / unknown phase → `VA_PURCHASE`.

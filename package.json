@@ -1,6 +1,6 @@
 {
   "name": "@rello-platform/nurture-goals",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Canonical NurtureGoal registry + priming/topic-exclusion metadata + inferNurtureGoal lead-state inference for the Rello platform — consumed by Rello (campaigns + nurture-precedence-authority connector) and Milo Engine (goal-driven composition).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

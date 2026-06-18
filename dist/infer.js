@@ -282,6 +282,47 @@ function isDscrInvestorSignal(meta) {
     }
     return false;
 }
+/**
+ * Detect a Harvest-Home-sourced investor / non-owner-occupied lead — the
+ * DOMINANT DSCR cohort in production. HH stamps `hh_intent_type='INVESTOR'`
+ * (its resolved intent), `hh_non_owner_occupied=true` (absentee owner), and/or
+ * `hh_investor_subtype` (e.g. 'out_of_state_owner'), but NEVER a `dscr_*` or
+ * `scout_*` marker — so these leads were invisible to both `isDscrInvestorSignal`
+ * and `isScoutInvestorSignal`, and `inferLoanProgram` returned `null` for them
+ * (no DSCR program hook fired). This is the dedicated HH-investor detector.
+ *
+ * Provenance: ported verbatim from Milo Engine's local `resolveLoanProgram`
+ * HH-field fallback (`~/Milo-Engine/src/lib/product-education-scope.ts::
+ * isHhInvestorSignal @ f54e83f`, PR #68). Moved INTO this shared package
+ * (HH-INVESTOR-LOANPROGRAM-SOT, 06172026) so Rello's compose-thread (which
+ * calls the package `inferLoanProgram`, NOT Milo's fallback) ALSO classifies
+ * these leads — single source of truth. The Milo local fallback is retired
+ * once consumers pin the version that ships this.
+ *
+ * NOTE this fires ONLY the loan-program dimension (`DSCR`); the GOAL routing in
+ * `inferFromLeadState` already routes `hh_intent_type='INVESTOR'` → the
+ * INVESTOR goal (and `hh_non_owner_occupied`/`hh_investor_subtype` leads fall
+ * through to their stage/default goal — unchanged here; this is the SECONDARY
+ * program-dimension fix, not a goal change).
+ *
+ * Production-safe: tolerates missing / null / wrong-type fields (returns false).
+ * Conservative — only the three canonical HH investor markers.
+ */
+function isHhInvestorSignal(meta) {
+    // HH's resolved intent (case-insensitive; mirrors inferFromLeadState's read).
+    const intent = meta.hh_intent_type;
+    if (typeof intent === 'string' && intent.trim().toUpperCase() === 'INVESTOR') {
+        return true;
+    }
+    // Absentee-owner flag — the canonical DSCR cohort marker.
+    if (meta.hh_non_owner_occupied === true)
+        return true;
+    // Non-empty investor subtype (e.g. 'out_of_state_owner').
+    const subtype = meta.hh_investor_subtype;
+    if (typeof subtype === 'string' && subtype.trim().length > 0)
+        return true;
+    return false;
+}
 // =============================================================================
 // Home-Scout contact-form fields (`scout_*`) — TERTIARY inference source.
 //   06152026 HS-SCOUT-FIELDS STEP 2 (06142026-NURTURE-AUDIT).
@@ -503,7 +544,12 @@ function refinancePhase(meta) {
         return true;
     if (goal === 'HOME_PURCHASE')
         return false;
-    const hh = (meta.hh_intent_type || '').toUpperCase();
+    // Type-safe read: `hh_intent_type` may be a non-string (e.g. a number) on a
+    // malformed customFields blob. `inferLoanProgram` promises never-throws, so
+    // coerce defensively rather than `(x as string).toUpperCase()` (which throws
+    // on a number). Surfaced by HH-INVESTOR-LOANPROGRAM-SOT null-safety tests.
+    const hhRaw = meta.hh_intent_type;
+    const hh = typeof hhRaw === 'string' ? hhRaw.toUpperCase() : '';
     if (hh === 'REFI' || hh === 'REFINANCE' || hh === 'RATE_WATCH')
         return true;
     if (hh === 'BUY')
@@ -604,7 +650,9 @@ function isScoutFhaLeaning(meta) {
  * veteran-flag sources (agency intake) outrank self-reported Home-Scout
  * contact-form answers within the same family, but the scout `*` fields add
  * families PFP never carries (Non-QM, Construction):
- *  1. DSCR — `dscr_*` markers OR Home-Scout investor signals.
+ *  1. DSCR — `dscr_*` markers OR Home-Scout investor signals OR HH-sourced
+ *     investor signals (`hh_intent_type='INVESTOR'` / `hh_non_owner_occupied` /
+ *     `hh_investor_subtype` — the dominant production DSCR cohort).
  *  2. VA family (PFP veteran flag / eligible-programs OR `scout_va_eligible`):
  *       - refinance phase → `VA_IRRRL` (the streamline refi).
  *       - purchase / unknown phase → `VA_PURCHASE`.
@@ -630,8 +678,13 @@ function isScoutFhaLeaning(meta) {
 function inferLoanProgram(input) {
     const meta = input.metadata || {};
     const loanType = input.loanType ?? null;
-    // 1. DSCR / investor — PFP DSCR markers OR Home-Scout investor signals.
-    if (isDscrInvestorSignal(meta) || isScoutInvestorSignal(meta)) {
+    // 1. DSCR / investor — PFP DSCR markers OR Home-Scout investor signals OR
+    //    HH-sourced investor signals (the dominant production DSCR cohort;
+    //    HH-INVESTOR-LOANPROGRAM-SOT, 06172026). ADDITIVE — only newly-classifies
+    //    HH-investor leads that previously fell through to `null`.
+    if (isDscrInvestorSignal(meta) ||
+        isScoutInvestorSignal(meta) ||
+        isHhInvestorSignal(meta)) {
         return 'DSCR';
     }
     const refi = refinancePhase(meta);
