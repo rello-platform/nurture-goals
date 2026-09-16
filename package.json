@@ -16,7 +16,8 @@
   "scripts": {
     "compile": "tsc",
     "test": "npm run compile && node --test tests/*.test.mjs",
-    "prepublishOnly": "npm run compile"
+    "prepublishOnly": "npm run compile",
+    "hooks": "git config core.hooksPath .husky || true"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
