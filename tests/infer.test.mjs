@@ -93,6 +93,10 @@ describe('inferNurtureGoal — HH intent-type routing (every intent → expected
     const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'REFI' }, entityType: 'LEAD' } }));
     assert.equal(got, 'REFINANCE');
   });
+  it('HELOC_TOP_UP intent → REFINANCE (spec §10.2: a HELOC top-up borrows lane 2; was the HOME_PURCHASE default)', () => {
+    const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'HELOC_TOP_UP' }, entityType: 'LEAD' } }));
+    assert.equal(got, 'REFINANCE');
+  });
   it('REFINANCE intent → REFINANCE (alias)', () => {
     const got = inferNurtureGoal(baseInput({ lead: { stage: null, metadata: { hh_intent_type: 'REFINANCE' }, entityType: 'LEAD' } }));
     assert.equal(got, 'REFINANCE');

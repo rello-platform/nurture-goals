@@ -78,6 +78,14 @@ function inferFromLeadState(lead, engagement) {
     if (hhIntentType === 'RATE_WATCH') {
         return 'REFINANCE';
     }
+    // HELOC_TOP_UP = HH's "add a second lien / top up" intent. SPEC-NURTURE-LANE-
+    // REGISTRY-260913 §10.2: a HELOC top-up borrows lane 2 (straight refinance);
+    // there is no HELOC lane. Until v0.11.0 this fell through to the
+    // HOME_PURCHASE default and Rello carried a one-line shim (44 ClearPath
+    // enrollments); the case belongs here, in the one inference.
+    if (hhIntentType === 'HELOC_TOP_UP') {
+        return 'REFINANCE';
+    }
     if (hhIntentType === 'REVERSE_MORTGAGE') {
         return 'REVERSE_MORTGAGE';
     }
